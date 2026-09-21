@@ -20,11 +20,13 @@
     --fairway-deep: #143A24;
     --sand: #E3D5AC;
     --flag: #C4372D;
+    --under: #24763F;
     --safe-t: env(safe-area-inset-top, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
     color-scheme: light;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; }
   body {
     background: var(--paper);
@@ -35,9 +37,9 @@
     -webkit-user-select: none;
     user-select: none;
   }
-  input { -webkit-user-select: text; user-select: text; }
+  input, textarea, select { -webkit-user-select: text; user-select: text; }
   button { font: inherit; color: inherit; touch-action: manipulation; cursor: pointer; }
-  button:focus-visible, input:focus-visible { outline: 3px solid var(--fairway); outline-offset: 2px; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--fairway); outline-offset: 2px; }
   #app { height: 100%; }
 
   .screen { height: 100%; display: flex; flex-direction: column; padding-top: var(--safe-t); }
@@ -62,7 +64,11 @@
   .holetitle small { font-size: 14px; font-weight: 600; color: var(--mute); margin-left: 6px; letter-spacing: 0; }
 
   .counter { text-align: center; padding: 0 14px 8px; }
-  .big { font-size: 132px; font-size: clamp(84px, 17dvh, 140px); line-height: 1.02; font-weight: 800;
+  .holeinfo { display: flex; justify-content: center; align-items: center; gap: 14px; font-size: 17px; font-weight: 700; min-height: 30px; }
+  .topar { background: var(--sand); border-radius: 999px; padding: 1px 11px; font-variant-numeric: tabular-nums; }
+  .over { color: var(--flag); }
+  .under { color: var(--under); }
+  .big { font-size: 132px; font-size: clamp(76px, 15dvh, 130px); line-height: 1.02; font-weight: 800;
          letter-spacing: -0.04em; font-variant-numeric: tabular-nums; color: var(--fairway-deep); }
   .sub { color: var(--mute); font-size: 15px; font-weight: 600; }
 
@@ -98,7 +104,7 @@
          font-size: 30px; font-weight: 800; box-shadow: 0 4px 0 var(--fairway-deep); }
   .add:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--fairway-deep); }
 
-  /* Rounds list */
+  /* Lists (rounds and courses) */
   .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 14px; -webkit-overflow-scrolling: touch; }
   .rounds { list-style: none; margin: 0; padding: 0; }
   .round-item { display: flex; gap: 6px; margin-bottom: 10px; align-items: stretch; }
@@ -115,6 +121,7 @@
              font-weight: 800; font-size: 20px; box-shadow: 0 3px 0 var(--fairway-deep); }
   .primary:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--fairway-deep); }
   .link { width: 100%; min-height: 44px; background: none; border: 0; color: var(--mute); padding: 10px; font-weight: 600; }
+  .linkrow { display: flex; gap: 8px; }
   .danger { width: 100%; min-height: 48px; border-radius: 14px; border: 2px solid var(--flag); background: none;
             color: var(--flag); font-weight: 700; margin-top: 4px; }
 
@@ -127,25 +134,48 @@
   .hint { margin: 0 0 8px; color: var(--mute); font-size: 14px; }
   .sheet .chips + .hint { margin: -2px 0 14px; }
   .field { display: block; }
+  .field + .field { margin-top: 12px; }
   .field span { display: block; font-size: 14px; color: var(--mute); font-weight: 600; margin-bottom: 6px; }
-  .field input { width: 100%; min-height: 50px; border: 2px solid var(--line); border-radius: 12px; padding: 0 12px;
+  .field input, .field select { width: 100%; min-height: 50px; border: 2px solid var(--line); border-radius: 12px; padding: 0 12px;
                  font: inherit; font-size: 17px; background: var(--paper); color: var(--ink); }
-  .seg { display: flex; gap: 8px; margin: 14px 0 16px; }
+  .json-box { width: 100%; min-height: 150px; border: 2px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px;
+              font: 14px/1.4 ui-monospace, Menlo, monospace; background: var(--paper); color: var(--ink); resize: vertical; }
+  .seg { display: flex; gap: 8px; margin: 14px 0 0; }
+  .seg + .seg { margin-top: 8px; }
+  .seg + .primary, .field + .seg { margin-top: 14px; }
   .seg label { flex: 1; position: relative; }
   .seg input { position: absolute; opacity: 0; pointer-events: none; }
   .seg span { display: block; text-align: center; padding: 13px 8px; border-radius: 12px; border: 2px solid var(--line);
               font-weight: 700; }
   .seg input:checked + span { background: var(--sand); border-color: var(--ink); }
+  .seg input:disabled + span { opacity: .35; }
   .seg input:focus-visible + span { outline: 3px solid var(--fairway); outline-offset: 2px; }
+  .sheet .primary { margin-top: 16px; }
   @keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* Course editor */
+  .hole-head, .hole-row { display: grid; grid-template-columns: 28px 1fr 84px; gap: 10px; align-items: center; }
+  .hole-head { color: var(--mute); font-size: 13px; font-weight: 600; padding: 14px 0 4px; }
+  .hole-head span:first-child { text-align: center; }
+  .hole-head span:last-child { text-align: right; }
+  .hole-row { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .hn { font-weight: 800; font-size: 16px; text-align: center; }
+  .pars { display: flex; gap: 6px; }
+  .par-btn { flex: 1; min-height: 44px; border-radius: 10px; border: 2px solid var(--line); background: var(--paper);
+             font-weight: 800; font-size: 17px; padding: 0; }
+  .par-btn.on { background: var(--sand); border-color: var(--ink); }
+  .len { width: 100%; min-height: 44px; border: 2px solid var(--line); border-radius: 10px; padding: 0 10px; font: inherit;
+         font-size: 17px; text-align: right; background: var(--paper); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .totals { margin: 14px 0 0; font-weight: 700; font-size: 16px; }
+  .delete-link { margin-top: 18px; }
 
   /* Scorecard */
   .score { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  .score th { text-align: right; font-size: 14px; color: var(--mute); font-weight: 600; padding: 8px 4px; }
+  .score th { text-align: right; font-size: 13px; color: var(--mute); font-weight: 600; padding: 8px 3px; }
   .score th:first-child, .score td:first-child { text-align: left; }
-  .score td { text-align: right; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 18px; font-weight: 600; }
-  .score tfoot td { font-weight: 800; border-bottom: 0; border-top: 2px solid var(--ink); font-size: 19px; }
-  .cellbtn { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--sand); font-weight: 800; font-size: 16px; }
+  .score td { text-align: right; padding: 6px 3px; border-bottom: 1px solid var(--line); font-size: 16px; font-weight: 600; }
+  .score tfoot td { font-weight: 800; border-bottom: 0; border-top: 2px solid var(--ink); font-size: 17px; }
+  .cellbtn { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--sand); font-weight: 800; font-size: 15px; }
   .card-title { margin: 6px 0 10px; font-size: 20px; font-weight: 800; }
   .card-title small { display: block; font-size: 14px; color: var(--mute); font-weight: 600; }
   .score-h3 { margin: 26px 0 4px; font-size: 18px; font-weight: 800; }
@@ -173,12 +203,16 @@
 
 const STORAGE_KEY = 'golf-strokes.v1';
 const CLUBS = ['Driver', '3W', '5W', 'Hybrid', '4i', '5i', '6i', '7i', '8i', '9i', 'PW', 'GW', 'SW', 'LW', 'Putter'];
+const PARS = [3, 4, 5, 6];
 const FIX_MAX_AGE_MS = 30000;
 
 /*
   db = {
-    rounds: [{ id, name, createdAt, holeCount, currentHole,
-               holes: { "1": [stroke, ...], "2": [...] } }],
+    courses: [{ id, name, holes: [{ par, length }, ...] }],   // 9 or 18 holes, length in meters (or null)
+    rounds: [{ id, name, createdAt, holeCount, startHole, sourceHoleCount, currentHole,
+               courseId,                                      // null when played without a course
+               holeData: { "1": { par, length }, ... },       // copied from the course when the round starts
+               holes: { "1": [stroke, ...], ... } }],         // keyed by real hole number (startHole ...)
     activeClubs: [...],        // clubs in the bag, shown when adding a stroke
     club: 'Driver',            // club selected for the next stroke
     activeRoundId: null        // round that was open last time
@@ -196,7 +230,11 @@ function loadDb() {
           ? CLUBS.filter(c => data.activeClubs.includes(c))
           : [...CLUBS];
         if (activeClubs.length === 0) activeClubs = [...CLUBS];
+        const courses = Array.isArray(data.courses)
+          ? data.courses.filter(c => c && typeof c.name === 'string' && Array.isArray(c.holes))
+          : [];
         return {
+          courses,
           rounds: data.rounds,
           activeClubs,
           club: activeClubs.includes(data.club) ? data.club : activeClubs[0],
@@ -205,7 +243,7 @@ function loadDb() {
       }
     }
   } catch (err) { /* ignore and start fresh */ }
-  return { rounds: [], activeClubs: [...CLUBS], club: CLUBS[0], activeRoundId: null };
+  return { courses: [], rounds: [], activeClubs: [...CLUBS], club: CLUBS[0], activeRoundId: null };
 }
 
 function saveDb() {
@@ -217,9 +255,10 @@ function saveDb() {
 }
 
 let db = loadDb();
-let view = 'list';       // 'list' | 'round' | 'card'
+let view = 'list';       // 'list' | 'round' | 'card' | 'courses' | 'course-edit'
 let roundId = null;
-let sheet = null;        // null | { type: 'new' } | { type: 'bag' } | { type: 'stroke', index }
+let sheet = null;        // null | { type: 'new' | 'bag' | 'import' } | { type: 'stroke', index }
+let draft = null;        // course being created or edited: { id, name, count, all: [{ par, length }] x18 }
 let lastFix = null;
 let gpsErrorCode = null;
 let watchId = null;
@@ -239,6 +278,10 @@ function esc(value) {
   ));
 }
 
+function newId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
 function getRound() {
   return db.rounds.find(r => r.id === roundId) || null;
 }
@@ -248,15 +291,65 @@ function holeList(round, hole) {
   return round.holes[hole];
 }
 
+// Real hole numbers played in a round, e.g. [10, 11, ..., 18] for a back nine.
+function holeNumbers(round) {
+  const start = round.startHole || 1;
+  return Array.from({ length: round.holeCount }, (_, i) => start + i);
+}
+
+function holeInfo(round, hole) {
+  return (round.holeData && round.holeData[hole]) || null;
+}
+
+// Strokes minus par for a hole, or null when nothing is played or par is unknown.
+function holeToPar(round, hole) {
+  const info = holeInfo(round, hole);
+  const count = (round.holes[hole] || []).length;
+  if (!info || !count) return null;
+  return count - info.par;
+}
+
+function fmtToPar(diff) {
+  if (diff === null || diff === undefined) return '–';
+  if (diff === 0) return 'E';
+  return diff > 0 ? '+' + diff : '−' + Math.abs(diff);
+}
+
+function toParClass(diff) {
+  if (diff === null || diff === undefined || diff === 0) return '';
+  return diff > 0 ? 'over' : 'under';
+}
+
 function roundTotals(round) {
   let total = 0;
   let played = 0;
-  for (let h = 1; h <= round.holeCount; h++) {
-    const n = (round.holes[h] || []).length;
+  let toPar = null;
+  for (const hole of holeNumbers(round)) {
+    const n = (round.holes[hole] || []).length;
     total += n;
     if (n > 0) played++;
+    const diff = holeToPar(round, hole);
+    if (diff !== null) toPar = (toPar || 0) + diff;
   }
-  return { total, played };
+  return { total, played, toPar };
+}
+
+// Label next to the hole number: "of 18", "front 9" or "back 9".
+function holeSuffix(round) {
+  if ((round.startHole || 1) > 1) return 'back 9';
+  if (round.holeCount === 9 && round.sourceHoleCount === 18) return 'front 9';
+  return 'of ' + round.holeCount;
+}
+
+function courseTotals(holes) {
+  return {
+    par: holes.reduce((sum, h) => sum + h.par, 0),
+    meters: holes.reduce((sum, h) => sum + (h.length || 0), 0)
+  };
+}
+
+function fmtMeters(m) {
+  return m.toLocaleString('en-GB') + ' m';
 }
 
 function hasPos(p) {
@@ -388,7 +481,7 @@ function releaseWake() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && view !== 'list') {
+  if (document.visibilityState === 'visible' && (view === 'round' || view === 'card')) {
     startGps();
     requestWake();
   }
@@ -430,17 +523,100 @@ function renderList() {
       </main>
       <footer class="dock">
         <button class="primary" data-action="new-round">New round</button>
-        <button class="link" data-action="edit-bag">My bag</button>
+        <div class="linkrow">
+          <button class="link" data-action="courses">My courses</button>
+          <button class="link" data-action="edit-bag">My bag</button>
+        </div>
         <button class="link" data-action="export">Copy all data as JSON</button>
       </footer>
     </div>`;
 }
 
+function renderCourses() {
+  const courses = [...db.courses].sort((a, b) => a.name.localeCompare(b.name));
+  const items = courses.map(c => {
+    const totals = courseTotals(c.holes);
+    return `
+      <li class="round-item">
+        <button class="round-open" data-action="edit-course" data-id="${esc(c.id)}">
+          <span class="rn">${esc(c.name)}</span>
+          <span class="rm">${c.holes.length} holes${totals.meters ? ', ' + fmtMeters(totals.meters) : ''}</span>
+          <span class="rt"><b>${totals.par}</b>par</span>
+        </button>
+      </li>`;
+  }).join('');
+
+  return `
+    <div class="screen">
+      <header class="top">
+        <button class="ghost" data-action="courses-back">‹ Back</button>
+        <h2>My courses</h2>
+        <span style="width:64px"></span>
+      </header>
+      <main class="scroll">
+        ${courses.length
+          ? `<ul class="rounds">${items}</ul>`
+          : `<p class="empty">No courses yet. Add one to get par and length on your scorecard.</p>`}
+      </main>
+      <footer class="dock">
+        <button class="primary" data-action="new-course">New course</button>
+        <button class="link" data-action="import-course">Import from JSON</button>
+      </footer>
+    </div>`;
+}
+
+function renderCourseEdit() {
+  const rows = draft.all.slice(0, draft.count).map((h, i) => `
+    <div class="hole-row">
+      <span class="hn">${i + 1}</span>
+      <div class="pars" role="group" aria-label="Par for hole ${i + 1}">
+        ${PARS.map(p => `<button class="par-btn${h.par === p ? ' on' : ''}" data-action="set-par" data-i="${i}" data-par="${p}">${p}</button>`).join('')}
+      </div>
+      <input class="len" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="m" data-i="${i}"
+             value="${h.length === null || h.length === undefined ? '' : h.length}" autocomplete="off"
+             aria-label="Length of hole ${i + 1} in meters">
+    </div>`).join('');
+
+  return `
+    <div class="screen">
+      <header class="top">
+        <button class="ghost" data-action="cancel-course">‹ Cancel</button>
+        <h2>${draft.id ? 'Edit course' : 'New course'}</h2>
+        <span style="width:64px"></span>
+      </header>
+      <main class="scroll">
+        <label class="field"><span>Name</span>
+          <input id="course-name" type="text" maxlength="60" autocomplete="off" value="${esc(draft.name)}">
+        </label>
+        <div class="seg" role="radiogroup" aria-label="Number of holes">
+          <label><input type="radio" name="course-count" value="18"${draft.count === 18 ? ' checked' : ''}><span>18 holes</span></label>
+          <label><input type="radio" name="course-count" value="9"${draft.count === 9 ? ' checked' : ''}><span>9 holes</span></label>
+        </div>
+        <div class="hole-head"><span>Hole</span><span>Par</span><span>Meters</span></div>
+        ${rows}
+        <p class="totals" id="course-totals">${draftTotalsText()}</p>
+        ${draft.id ? '<button class="danger delete-link" data-action="delete-course">Delete course</button>' : ''}
+      </main>
+      <footer class="dock">
+        <button class="primary" data-action="save-course">Save course</button>
+      </footer>
+    </div>`;
+}
+
+function draftTotalsText() {
+  const totals = courseTotals(draft.all.slice(0, draft.count));
+  return `Par ${totals.par}` + (totals.meters ? ', ' + fmtMeters(totals.meters) : '');
+}
+
 function renderRound() {
   const round = getRound();
   const hole = round.currentHole;
+  const firstHole = round.startHole || 1;
+  const lastHole = firstHole + round.holeCount - 1;
   const list = holeList(round, hole);
-  const { total } = roundTotals(round);
+  const totals = roundTotals(round);
+  const info = holeInfo(round, hole);
+  const diff = holeToPar(round, hole);
   const last = list.length - 1;
 
   const rows = list.map((s, i) => {
@@ -471,6 +647,15 @@ function renderRound() {
       </li>`;
   }).join('');
 
+  const infoHtml = info
+    ? `<div class="holeinfo">
+         <span>Par ${info.par}</span>
+         ${info.length ? `<span>${info.length} m</span>` : ''}
+         ${diff !== null ? `<span class="topar ${toParClass(diff)}">${fmtToPar(diff)}</span>` : ''}
+       </div>`
+    : '<div class="holeinfo"></div>';
+  const roundPart = totals.toPar === null ? '' : `, ${fmtToPar(totals.toPar)} to par`;
+
   return `
     <div class="screen">
       <header class="top">
@@ -479,13 +664,14 @@ function renderRound() {
         <button class="ghost" data-action="scorecard">Scorecard</button>
       </header>
       <div class="holebar">
-        <button class="step" data-action="prev-hole" ${hole <= 1 ? 'disabled' : ''} aria-label="Previous hole">‹</button>
-        <div class="holetitle">Hole ${hole}<small>of ${round.holeCount}</small></div>
-        <button class="step" data-action="next-hole" ${hole >= round.holeCount ? 'disabled' : ''} aria-label="Next hole">›</button>
+        <button class="step" data-action="prev-hole" ${hole <= firstHole ? 'disabled' : ''} aria-label="Previous hole">‹</button>
+        <div class="holetitle">Hole ${hole}<small>${holeSuffix(round)}</small></div>
+        <button class="step" data-action="next-hole" ${hole >= lastHole ? 'disabled' : ''} aria-label="Next hole">›</button>
       </div>
       <section class="counter" aria-live="polite">
+        ${infoHtml}
         <div class="big">${list.length}</div>
-        <div class="sub">strokes on this hole, ${total} in the round</div>
+        <div class="sub">strokes on this hole, ${totals.total} in the round${roundPart}</div>
       </section>
       <ol class="strokes">
         ${rows || '<li class="hint-empty">Tap +1 stroke right after each shot, while you are still standing where you hit from. Distance is measured to your next stroke.</li>'}
@@ -505,13 +691,18 @@ function renderRound() {
 
 function renderCard() {
   const round = getRound();
-  const { total } = roundTotals(round);
+  const totals = roundTotals(round);
+  const hasInfo = !!round.holeData && Object.keys(round.holeData).length > 0;
   const clubStats = {};
   let longestAll = null;
+  let parSum = 0;
+  let metersSum = 0;
 
   let rows = '';
-  for (let h = 1; h <= round.holeCount; h++) {
+  for (const h of holeNumbers(round)) {
     const list = round.holes[h] || [];
+    const info = holeInfo(round, h);
+    const diff = holeToPar(round, h);
     let longest = null;
     list.forEach((s, i) => {
       const d = shotDistance(list, i);
@@ -521,10 +712,13 @@ function renderCard() {
       const st = clubStats[s.club] || (clubStats[s.club] = { n: 0, sum: 0, max: 0 });
       st.n++; st.sum += d.m; st.max = Math.max(st.max, d.m);
     });
+    if (info) { parSum += info.par; metersSum += info.length || 0; }
     rows += `
       <tr>
         <td><button class="cellbtn" data-action="goto-hole" data-hole="${h}" aria-label="Go to hole ${h}">${h}</button></td>
+        ${hasInfo ? `<td>${info ? info.par : '–'}</td><td>${info && info.length ? info.length : '–'}</td>` : ''}
         <td>${list.length || '–'}</td>
+        ${hasInfo ? `<td class="${toParClass(diff)}">${fmtToPar(diff)}</td>` : ''}
         <td>${longest ? fmtDist(longest) : '–'}</td>
       </tr>`;
   }
@@ -544,10 +738,23 @@ function renderCard() {
       <main class="scroll">
         <p class="card-title">${esc(roundLabel(round))}<small>${esc(dateFmt.format(round.createdAt))} ${esc(timeFmt.format(round.createdAt))}</small></p>
         <table class="score">
-          <thead><tr><th>Hole</th><th>Strokes</th><th>Longest</th></tr></thead>
+          <thead><tr>
+            <th>Hole</th>
+            ${hasInfo ? '<th>Par</th><th>Meters</th>' : ''}
+            <th>Strokes</th>
+            ${hasInfo ? '<th>+/−</th>' : ''}
+            <th>Longest</th>
+          </tr></thead>
           <tbody>${rows}</tbody>
-          <tfoot><tr><td>Total</td><td>${total}</td><td>${longestAll ? fmtDist(longestAll) : '–'}</td></tr></tfoot>
+          <tfoot><tr>
+            <td>Total</td>
+            ${hasInfo ? `<td>${parSum}</td><td>${metersSum || '–'}</td>` : ''}
+            <td>${totals.total}</td>
+            ${hasInfo ? `<td class="${toParClass(totals.toPar)}">${fmtToPar(totals.toPar)}</td>` : ''}
+            <td>${longestAll ? fmtDist(longestAll) : '–'}</td>
+          </tr></tfoot>
         </table>
+        ${hasInfo ? '<p class="note">Par and length were copied from the course when the round started. +/− is strokes minus par on holes you have played. E means even par.</p>' : ''}
         ${clubRows ? `
           <h3 class="score-h3">Clubs</h3>
           <table class="score">
@@ -561,18 +768,43 @@ function renderCard() {
 
 function renderSheet() {
   if (sheet.type === 'new') {
+    const courses = [...db.courses].sort((a, b) => a.name.localeCompare(b.name));
+    const courseField = courses.length ? `
+        <label class="field"><span>Course</span>
+          <select id="round-course">
+            <option value="">No course</option>
+            ${courses.map(c => `<option value="${esc(c.id)}">${esc(c.name)} (${c.holes.length} holes)</option>`).join('')}
+          </select>
+        </label>` : '';
     return `
       <div class="backdrop" data-action="close-sheet"></div>
       <div class="sheet" role="dialog" aria-modal="true" aria-label="New round">
         <h2>New round</h2>
-        <label class="field"><span>Course</span>
+        ${courseField}
+        <label class="field" id="round-name-field"><span>Name</span>
           <input id="round-name" type="text" placeholder="Optional" autocomplete="off" maxlength="60">
         </label>
         <div class="seg" role="radiogroup" aria-label="Number of holes">
           <label><input type="radio" name="holes" value="18" checked><span>18 holes</span></label>
           <label><input type="radio" name="holes" value="9"><span>9 holes</span></label>
         </div>
+        <div class="seg" id="nine-seg" role="radiogroup" aria-label="Which nine" hidden>
+          <label><input type="radio" name="nine" value="front" checked><span>Front 9 (1–9)</span></label>
+          <label><input type="radio" name="nine" value="back"><span>Back 9 (10–18)</span></label>
+        </div>
         <button class="primary" data-action="create-round">Start round</button>
+        <button class="link" data-action="close-sheet">Cancel</button>
+      </div>`;
+  }
+
+  if (sheet.type === 'import') {
+    return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Import courses">
+        <h2>Import from JSON</h2>
+        <p class="hint">Paste one course or a list of courses. Each course has a name and 9 or 18 holes with par and length in meters, for example <code>{"name":"My Course","holes":[{"par":4,"length":352}, …]}</code></p>
+        <textarea class="json-box" id="import-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+        <button class="primary" data-action="do-import">Import</button>
         <button class="link" data-action="close-sheet">Cancel</button>
       </div>`;
   }
@@ -618,6 +850,8 @@ function render() {
   let html;
   if (view === 'round' && getRound()) html = renderRound();
   else if (view === 'card' && getRound()) html = renderCard();
+  else if (view === 'courses') html = renderCourses();
+  else if (view === 'course-edit' && draft) html = renderCourseEdit();
   else { view = 'list'; html = renderList(); }
   app.innerHTML = html + (sheet ? renderSheet() : '');
   if (view === 'round') {
@@ -634,7 +868,176 @@ function popCounter() {
   if (el && el.animate) el.animate([{ transform: 'scale(1.14)' }, { transform: 'scale(1)' }], { duration: 180, easing: 'ease-out' });
 }
 
-/* ---------- Actions ---------- */
+/* ---------- New round form ---------- */
+
+// Keeps the "New round" sheet consistent with the selected course:
+// - the free-text name is only used when no course is selected
+// - a 9-hole course can only be played as 9 holes
+// - front/back nine is only asked for when playing 9 holes on an 18-hole course
+function syncNewRoundForm() {
+  const select = document.getElementById('round-course');
+  const course = select ? db.courses.find(c => c.id === select.value) || null : null;
+  const nameField = document.getElementById('round-name-field');
+  const radio18 = document.querySelector('input[name="holes"][value="18"]');
+  const radio9 = document.querySelector('input[name="holes"][value="9"]');
+  const nineSeg = document.getElementById('nine-seg');
+  if (!nameField || !radio18 || !radio9 || !nineSeg) return;
+
+  nameField.hidden = !!course;
+  if (course && course.holes.length === 9) {
+    radio9.checked = true;
+    radio18.disabled = true;
+  } else {
+    radio18.disabled = false;
+  }
+  nineSeg.hidden = !(course && course.holes.length === 18 && radio9.checked);
+}
+
+function createRound() {
+  const select = document.getElementById('round-course');
+  const course = select ? db.courses.find(c => c.id === select.value) || null : null;
+  const nameInput = document.getElementById('round-name');
+  const holesInput = document.querySelector('input[name="holes"]:checked');
+  const nineInput = document.querySelector('input[name="nine"]:checked');
+
+  let holeCount = holesInput ? Number(holesInput.value) || 18 : 18;
+  if (course && course.holes.length === 9) holeCount = 9;
+  const backNine = !!course && course.holes.length === 18 && holeCount === 9 && !!nineInput && nineInput.value === 'back';
+  const startHole = backNine ? 10 : 1;
+
+  // Copy par and length so later edits to the course don't change this round.
+  const holeData = {};
+  if (course) {
+    for (let i = 0; i < holeCount; i++) {
+      const hole = course.holes[startHole - 1 + i];
+      if (hole) holeData[startHole + i] = { par: hole.par, length: hole.length };
+    }
+  }
+
+  const round = {
+    id: newId(),
+    name: course ? course.name : (nameInput ? nameInput.value.trim() : ''),
+    createdAt: Date.now(),
+    courseId: course ? course.id : null,
+    holeCount,
+    startHole,
+    sourceHoleCount: course ? course.holes.length : holeCount,
+    currentHole: startHole,
+    holeData,
+    holes: {}
+  };
+  db.rounds.push(round);
+  openRound(round.id);
+}
+
+/* ---------- Course editor and import ---------- */
+
+function emptyHoles() {
+  return Array.from({ length: 18 }, () => ({ par: 4, length: null }));
+}
+
+function startNewCourse() {
+  draft = { id: null, name: '', count: 18, all: emptyHoles() };
+  view = 'course-edit';
+  render();
+}
+
+function startEditCourse(id) {
+  const course = db.courses.find(c => c.id === id);
+  if (!course) return;
+  const all = emptyHoles();
+  course.holes.forEach((h, i) => { all[i] = { par: h.par, length: h.length }; });
+  draft = { id: course.id, name: course.name, count: course.holes.length, all };
+  view = 'course-edit';
+  render();
+}
+
+function saveCourse() {
+  const nameInput = document.getElementById('course-name');
+  const name = nameInput ? nameInput.value.trim() : '';
+  if (!name) {
+    toast('Give the course a name');
+    if (nameInput) nameInput.focus();
+    return;
+  }
+  const holes = draft.all.slice(0, draft.count).map(h => ({ par: h.par, length: h.length }));
+  const existing = draft.id ? db.courses.find(c => c.id === draft.id) : null;
+  if (existing) {
+    existing.name = name;
+    existing.holes = holes;
+  } else {
+    db.courses.push({ id: newId(), name, holes });
+  }
+  saveDb();
+  draft = null;
+  view = 'courses';
+  render();
+}
+
+function deleteCourse() {
+  if (!draft || !draft.id) return;
+  if (!confirm('Delete this course? Rounds you have already played keep their par and length.')) return;
+  db.courses = db.courses.filter(c => c.id !== draft.id);
+  saveDb();
+  draft = null;
+  view = 'courses';
+  render();
+}
+
+function updateDraftTotals() {
+  const el = document.getElementById('course-totals');
+  if (el && draft) el.textContent = draftTotalsText();
+}
+
+// Validates one imported course object. Returns a course or null.
+function parseCourse(item) {
+  if (!item || typeof item.name !== 'string' || !item.name.trim() || !Array.isArray(item.holes)) return null;
+  if (item.holes.length !== 9 && item.holes.length !== 18) return null;
+  const holes = [];
+  for (const h of item.holes) {
+    const par = Number(h && h.par);
+    if (!Number.isInteger(par) || par < PARS[0] || par > PARS[PARS.length - 1]) return null;
+    let length = null;
+    if (h.length !== undefined && h.length !== null && h.length !== '') {
+      length = Number(h.length);
+      if (!Number.isFinite(length) || length < 0 || length > 1000) return null;
+      length = Math.round(length);
+    }
+    holes.push({ par, length });
+  }
+  return { id: newId(), name: item.name.trim().slice(0, 60), holes };
+}
+
+function importCourses(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    toast('That is not valid JSON');
+    return;
+  }
+  const list = Array.isArray(data) ? data : (data && Array.isArray(data.courses) ? data.courses : [data]);
+  const parsed = [];
+  for (const item of list) {
+    const course = parseCourse(item);
+    if (!course) {
+      toast('Could not read the course data. Check the format.');
+      return;
+    }
+    parsed.push(course);
+  }
+  if (!parsed.length) {
+    toast('No courses found');
+    return;
+  }
+  db.courses.push(...parsed);
+  saveDb();
+  sheet = null;
+  render();
+  toast(parsed.length === 1 ? 'Imported 1 course' : `Imported ${parsed.length} courses`);
+}
+
+/* ---------- Round actions ---------- */
 
 function openRound(id) {
   roundId = id;
@@ -656,21 +1059,6 @@ function closeRound() {
   stopGps();
   releaseWake();
   render();
-}
-
-function createRound() {
-  const nameInput = document.getElementById('round-name');
-  const holesInput = document.querySelector('input[name="holes"]:checked');
-  const round = {
-    id: Date.now().toString(36),
-    name: nameInput ? nameInput.value.trim() : '',
-    createdAt: Date.now(),
-    holeCount: holesInput ? Number(holesInput.value) || 18 : 18,
-    currentHole: 1,
-    holes: {}
-  };
-  db.rounds.push(round);
-  openRound(round.id);
 }
 
 function addStroke() {
@@ -721,7 +1109,9 @@ function undoStroke() {
 
 function changeHole(delta) {
   const round = getRound();
-  round.currentHole = Math.max(1, Math.min(round.holeCount, round.currentHole + delta));
+  const first = round.startHole || 1;
+  const last = first + round.holeCount - 1;
+  round.currentHole = Math.max(first, Math.min(last, round.currentHole + delta));
   saveDb();
   render();
 }
@@ -748,7 +1138,12 @@ function toggleClub(club) {
 }
 
 async function exportData() {
-  const text = JSON.stringify({ exportedAt: new Date().toISOString(), rounds: db.rounds, activeClubs: db.activeClubs }, null, 2);
+  const text = JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    courses: db.courses,
+    rounds: db.rounds,
+    activeClubs: db.activeClubs
+  }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
     toast('Copied to clipboard');
@@ -763,6 +1158,8 @@ async function exportData() {
     toast(ok ? 'Copied to clipboard' : 'Could not copy');
   }
 }
+
+/* ---------- Event handling ---------- */
 
 // One delegated click handler for the whole app.
 app.addEventListener('click', event => {
@@ -783,6 +1180,26 @@ app.addEventListener('click', event => {
       }
       break;
     case 'export': exportData(); break;
+
+    case 'courses': view = 'courses'; render(); break;
+    case 'courses-back': view = 'list'; render(); break;
+    case 'new-course': startNewCourse(); break;
+    case 'edit-course': startEditCourse(el.dataset.id); break;
+    case 'cancel-course': draft = null; view = 'courses'; render(); break;
+    case 'save-course': saveCourse(); break;
+    case 'delete-course': deleteCourse(); break;
+    case 'set-par': {
+      const par = Number(el.dataset.par);
+      draft.all[Number(el.dataset.i)].par = par;
+      el.parentElement.querySelectorAll('.par-btn').forEach(btn => {
+        btn.classList.toggle('on', Number(btn.dataset.par) === par);
+      });
+      updateDraftTotals();
+      break;
+    }
+    case 'import-course': sheet = { type: 'import' }; render(); break;
+    case 'do-import': importCourses(document.getElementById('import-text').value); break;
+
     case 'edit-bag': sheet = { type: 'bag' }; render(); break;
     case 'toggle-club': toggleClub(el.dataset.club); break;
     case 'back': closeRound(); break;
@@ -824,6 +1241,37 @@ app.addEventListener('click', event => {
       break;
     }
     case 'close-sheet': sheet = null; render(); break;
+  }
+});
+
+app.addEventListener('change', event => {
+  const target = event.target;
+  if (target.id === 'round-course') {
+    // Pick the matching hole count for the chosen course.
+    const course = db.courses.find(c => c.id === target.value);
+    if (course) {
+      const radio = document.querySelector(`input[name="holes"][value="${course.holes.length}"]`);
+      if (radio) radio.checked = true;
+    }
+    syncNewRoundForm();
+  } else if (target.name === 'holes') {
+    syncNewRoundForm();
+  } else if (target.name === 'course-count' && draft) {
+    const nameInput = document.getElementById('course-name');
+    if (nameInput) draft.name = nameInput.value;
+    draft.count = Number(target.value);
+    render();
+  }
+});
+
+// Length fields in the course editor: keep digits only and update the draft as you type.
+app.addEventListener('input', event => {
+  const target = event.target;
+  if (draft && target.classList.contains('len')) {
+    const digits = target.value.replace(/\D/g, '').slice(0, 4);
+    if (digits !== target.value) target.value = digits;
+    draft.all[Number(target.dataset.i)].length = digits ? parseInt(digits, 10) : null;
+    updateDraftTotals();
   }
 });
 
