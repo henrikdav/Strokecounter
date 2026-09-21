@@ -77,8 +77,11 @@
   .nopos { color: var(--flag); font-size: 12px; font-weight: 600; }
   .dist { font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
   .dist.muted { color: var(--mute); font-weight: 400; }
-  .measure { border: 2px solid var(--fairway); background: none; color: var(--fairway); border-radius: 999px;
-             padding: 6px 14px; font-weight: 700; font-size: 14px; min-height: 38px; }
+  .measure { display: inline-flex; align-items: center; gap: 10px; border: 2px solid var(--fairway); background: none;
+             color: var(--fairway-deep); border-radius: 999px; padding: 6px 16px 6px 12px; font-weight: 800; font-size: 18px;
+             font-variant-numeric: tabular-nums; min-height: 44px; }
+  .measure:active { background: var(--sand); }
+  .stop-icon { width: 14px; height: 14px; border-radius: 3px; background: var(--flag); flex: none; }
   .hint-empty { padding: 18px 0; color: var(--mute); font-size: 15px; }
 
   .dock { padding: 10px 14px calc(10px + var(--safe-b)); background: var(--white); border-top: 1px solid var(--line); }
@@ -311,6 +314,24 @@ function onFix(pos) {
   gpsErrorCode = null;
   lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, t: Date.now() };
   updateGps();
+  updateLiveDistance();
+}
+
+// Updates the running distance on the measure button (last stroke of the hole)
+// from the stroke position to the current GPS position.
+function updateLiveDistance() {
+  const el = document.getElementById('live-dist');
+  if (!el || view !== 'round') return;
+  const round = getRound();
+  if (!round) return;
+  const list = holeList(round, round.currentHole);
+  const stroke = list[list.length - 1];
+  const fix = freshFix();
+  if (!stroke || !hasPos(stroke) || !fix) { el.textContent = '…'; return; }
+  el.textContent = fmtDist({
+    m: meters(stroke, fix),
+    approx: (stroke.acc || 0) + (fix.acc || 0) > 25
+  });
 }
 
 function onGpsError(err) {
@@ -372,7 +393,7 @@ document.addEventListener('visibilitychange', () => {
     requestWake();
   }
 });
-setInterval(updateGps, 5000);
+setInterval(() => { updateGps(); updateLiveDistance(); }, 5000);
 
 /* ---------- Rendering ---------- */
 
@@ -430,7 +451,12 @@ function renderRound() {
     } else if (d) {
       right = `<span class="dist">${fmtDist(d)}</span>`;
     } else if (i === last && hasPos(s)) {
-      right = '<button class="measure" data-action="measure">Measure here</button>';
+      // Live measurement: shows the distance from this stroke to where you stand now.
+      // Tapping it stops the measurement and locks the distance.
+      right = `<button class="measure" data-action="measure" aria-label="Stop and lock this distance">
+                 <span class="stop-icon" aria-hidden="true"></span>
+                 <span id="live-dist">…</span>
+               </button>`;
     } else {
       right = '<span class="dist muted">–</span>';
     }
@@ -596,6 +622,7 @@ function render() {
   app.innerHTML = html + (sheet ? renderSheet() : '');
   if (view === 'round') {
     updateGps();
+    updateLiveDistance();
     const strokes = app.querySelector('.strokes');
     if (strokes) strokes.scrollTop = strokes.scrollHeight;
   }
