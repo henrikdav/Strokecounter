@@ -154,20 +154,31 @@
   @keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 
   /* Course editor */
-  .hole-head, .hole-row { display: grid; grid-template-columns: 28px 1fr 84px; gap: 10px; align-items: center; }
+  .hole-head, .hole-row { display: grid; grid-template-columns: 26px 1fr 66px 46px; gap: 8px; align-items: center; }
   .hole-head { color: var(--mute); font-size: 13px; font-weight: 600; padding: 14px 0 4px; }
   .hole-head span:first-child { text-align: center; }
-  .hole-head span:last-child { text-align: right; }
+  .hole-head span:nth-child(n+3) { text-align: right; }
   .hole-row { padding: 6px 0; border-bottom: 1px solid var(--line); }
   .hn { font-weight: 800; font-size: 16px; text-align: center; }
   .pars { display: flex; gap: 6px; }
   .par-btn { flex: 1; min-height: 44px; border-radius: 10px; border: 2px solid var(--line); background: var(--paper);
              font-weight: 800; font-size: 17px; padding: 0; }
   .par-btn.on { background: var(--sand); border-color: var(--ink); }
-  .len { width: 100%; min-height: 44px; border: 2px solid var(--line); border-radius: 10px; padding: 0 10px; font: inherit;
+  .len, .idx { width: 100%; min-height: 44px; border: 2px solid var(--line); border-radius: 10px; padding: 0 10px; font: inherit;
          font-size: 17px; text-align: right; background: var(--paper); color: var(--ink); font-variant-numeric: tabular-nums; }
   .totals { margin: 14px 0 0; font-weight: 700; font-size: 16px; }
   .delete-link { margin-top: 18px; }
+  .idx { padding: 0 6px; }
+  .row2 { display: flex; gap: 10px; margin-top: 12px; }
+  .row2 .field { flex: 1; min-width: 0; }
+  .row2 .field + .field { margin-top: 0; }
+  .extra { border: 2px solid var(--fairway); border-radius: 999px; padding: 0 10px; font-size: 15px; color: var(--fairway-deep); }
+  .modebar { display: flex; gap: 8px; margin: 4px 0 8px; }
+  .modebtn { flex: 1; min-height: 42px; border-radius: 10px; border: 2px solid var(--line); background: var(--paper); font-weight: 700; }
+  .modebtn.on { background: var(--sand); border-color: var(--ink); }
+  .hcp-line { margin: 0 0 6px; }
+  .inline-btn { background: none; border: 0; padding: 6px 0; color: var(--fairway); font-weight: 700;
+                text-decoration: underline; text-underline-offset: 3px; }
 
   /* Scorecard */
   .score { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -204,15 +215,20 @@
 const STORAGE_KEY = 'golf-strokes.v1';
 const CLUBS = ['Driver', '3W', '5W', 'Hybrid', '4i', '5i', '6i', '7i', '8i', '9i', 'PW', 'GW', 'SW', 'LW', 'Putter'];
 const PARS = [3, 4, 5, 6];
+const ALLOWANCES = [100, 95, 90, 85];   // handicap adjustment percentages
+const HCP_HINT = 'Read it from the slope table for your tee (the 9-hole value when playing 9 holes). Adjustment is the competition percentage; keep 100% for a casual round.';
+const NO_INDEX_HINT = 'This course has no hole index yet, so extra strokes will not be calculated. Add the index under My courses.';
 const FIX_MAX_AGE_MS = 30000;
 
 /*
   db = {
-    courses: [{ id, name, holes: [{ par, length }, ...] }],   // 9 or 18 holes, length in meters (or null)
+    courses: [{ id, name, holes: [{ par, length, index }, ...] }],   // 9 or 18 holes, length in meters, index 1-18 (or null)
     rounds: [{ id, name, createdAt, holeCount, startHole, sourceHoleCount, currentHole,
                courseId,                                      // null when played without a course
-               holeData: { "1": { par, length }, ... },       // copied from the course when the round starts
+               holeData: { "1": { par, length, index }, ... }, // copied from the course when the round starts
+               handicap: { base, allowance } | null,           // playing handicap from the slope table + adjustment %
                holes: { "1": [stroke, ...], ... } }],         // keyed by real hole number (startHole ...)
+    allowance: 100,            // last used handicap adjustment %
     activeClubs: [...],        // clubs in the bag, shown when adding a stroke
     club: 'Driver',            // club selected for the next stroke
     activeRoundId: null        // round that was open last time
@@ -235,6 +251,7 @@ function loadDb() {
           : [];
         return {
           courses,
+          allowance: ALLOWANCES.includes(Number(data.allowance)) ? Number(data.allowance) : 100,
           rounds: data.rounds,
           activeClubs,
           club: activeClubs.includes(data.club) ? data.club : activeClubs[0],
@@ -243,7 +260,7 @@ function loadDb() {
       }
     }
   } catch (err) { /* ignore and start fresh */ }
-  return { courses: [], rounds: [], activeClubs: [...CLUBS], club: CLUBS[0], activeRoundId: null };
+  return { courses: [], rounds: [], allowance: 100, activeClubs: [...CLUBS], club: CLUBS[0], activeRoundId: null };
 }
 
 function saveDb() {
@@ -258,7 +275,8 @@ let db = loadDb();
 let view = 'list';       // 'list' | 'round' | 'card' | 'courses' | 'course-edit'
 let roundId = null;
 let sheet = null;        // null | { type: 'new' | 'bag' | 'import' } | { type: 'stroke', index }
-let draft = null;        // course being created or edited: { id, name, count, all: [{ par, length }] x18 }
+let draft = null;        // course being created or edited: { id, name, count, all: [{ par, length, index }] x18 }
+let cardMode = 'gross';  // scorecard view: 'gross' | 'net'
 let lastFix = null;
 let gpsErrorCode = null;
 let watchId = null;
@@ -318,6 +336,33 @@ function fmtToPar(diff) {
 function toParClass(diff) {
   if (diff === null || diff === undefined || diff === 0) return '';
   return diff > 0 ? 'over' : 'under';
+}
+
+// Playing handicap after the adjustment percentage, or null when none is set.
+function adjustedHandicap(round) {
+  if (!round.handicap) return null;
+  return Math.round(round.handicap.base * round.handicap.allowance / 100);
+}
+
+// Extra (handicap) strokes on a hole, or null when they can't be calculated
+// (no handicap, or a played hole without a hole index).
+// The holes played are ranked by index; with n holes and playing handicap PH,
+// every hole gets floor(PH / n) strokes and the easiest-to-get ranks 1..(PH mod n) get one more.
+function strokesReceived(round, hole) {
+  const ph = adjustedHandicap(round);
+  if (ph === null) return null;
+  const numbers = holeNumbers(round);
+  const indexOf = h => { const info = holeInfo(round, h); return info ? info.index : null; };
+  if (numbers.some(h => !Number.isInteger(indexOf(h)))) return null;
+  const ranked = [...numbers].sort((a, b) => indexOf(a) - indexOf(b));
+  const rank = ranked.indexOf(hole) + 1;
+  if (rank === 0) return null;
+  const n = numbers.length;
+  return Math.floor(ph / n) + (rank <= ph % n ? 1 : 0);
+}
+
+function allowanceOptions(selected) {
+  return ALLOWANCES.map(a => `<option value="${a}"${a === selected ? ' selected' : ''}>${a}%</option>`).join('');
 }
 
 function roundTotals(round) {
@@ -575,6 +620,9 @@ function renderCourseEdit() {
       <input class="len" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="m" data-i="${i}"
              value="${h.length === null || h.length === undefined ? '' : h.length}" autocomplete="off"
              aria-label="Length of hole ${i + 1} in meters">
+      <input class="idx" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="1–18" data-i="${i}"
+             value="${h.index === null || h.index === undefined ? '' : h.index}" autocomplete="off"
+             aria-label="Index of hole ${i + 1}">
     </div>`).join('');
 
   return `
@@ -592,7 +640,7 @@ function renderCourseEdit() {
           <label><input type="radio" name="course-count" value="18"${draft.count === 18 ? ' checked' : ''}><span>18 holes</span></label>
           <label><input type="radio" name="course-count" value="9"${draft.count === 9 ? ' checked' : ''}><span>9 holes</span></label>
         </div>
-        <div class="hole-head"><span>Hole</span><span>Par</span><span>Meters</span></div>
+        <div class="hole-head"><span>Hole</span><span>Par</span><span>Meters</span><span>Index</span></div>
         ${rows}
         <p class="totals" id="course-totals">${draftTotalsText()}</p>
         ${draft.id ? '<button class="danger delete-link" data-action="delete-course">Delete course</button>' : ''}
@@ -617,6 +665,7 @@ function renderRound() {
   const totals = roundTotals(round);
   const info = holeInfo(round, hole);
   const diff = holeToPar(round, hole);
+  const extra = strokesReceived(round, hole);
   const last = list.length - 1;
 
   const rows = list.map((s, i) => {
@@ -651,6 +700,7 @@ function renderRound() {
     ? `<div class="holeinfo">
          <span>Par ${info.par}</span>
          ${info.length ? `<span>${info.length} m</span>` : ''}
+         ${extra ? `<span class="extra">${extra} extra</span>` : ''}
          ${diff !== null ? `<span class="topar ${toParClass(diff)}">${fmtToPar(diff)}</span>` : ''}
        </div>`
     : '<div class="holeinfo"></div>';
@@ -691,18 +741,25 @@ function renderRound() {
 
 function renderCard() {
   const round = getRound();
-  const totals = roundTotals(round);
   const hasInfo = !!round.holeData && Object.keys(round.holeData).length > 0;
+  const hasExtras = strokesReceived(round, round.startHole || 1) !== null;
+  const net = cardMode === 'net' && hasExtras;
   const clubStats = {};
   let longestAll = null;
   let parSum = 0;
   let metersSum = 0;
+  let extraSum = 0;
+  let shownTotal = 0;
+  let diffTotal = null;
 
   let rows = '';
   for (const h of holeNumbers(round)) {
     const list = round.holes[h] || [];
     const info = holeInfo(round, h);
-    const diff = holeToPar(round, h);
+    const extra = hasExtras ? strokesReceived(round, h) : null;
+    const played = list.length > 0;
+    const shown = played ? list.length - (net ? extra : 0) : null;
+    const diff = info && played ? shown - info.par : null;
     let longest = null;
     list.forEach((s, i) => {
       const d = shotDistance(list, i);
@@ -713,11 +770,15 @@ function renderCard() {
       st.n++; st.sum += d.m; st.max = Math.max(st.max, d.m);
     });
     if (info) { parSum += info.par; metersSum += info.length || 0; }
+    if (extra) extraSum += extra;
+    if (played) shownTotal += shown;
+    if (diff !== null) diffTotal = (diffTotal || 0) + diff;
     rows += `
       <tr>
         <td><button class="cellbtn" data-action="goto-hole" data-hole="${h}" aria-label="Go to hole ${h}">${h}</button></td>
         ${hasInfo ? `<td>${info ? info.par : '–'}</td><td>${info && info.length ? info.length : '–'}</td>` : ''}
-        <td>${list.length || '–'}</td>
+        ${hasExtras ? `<td>${extra || '–'}</td>` : ''}
+        <td>${shown === null ? '–' : shown}</td>
         ${hasInfo ? `<td class="${toParClass(diff)}">${fmtToPar(diff)}</td>` : ''}
         <td>${longest ? fmtDist(longest) : '–'}</td>
       </tr>`;
@@ -728,6 +789,23 @@ function renderCard() {
     return `<tr><td>${c}</td><td>${st.n}</td><td>${Math.round(st.sum / st.n)} m</td><td>${Math.round(st.max)} m</td></tr>`;
   }).join('');
 
+  let hcpLine = '';
+  if (hasInfo) {
+    const hcp = round.handicap;
+    const label = hcp
+      ? `Playing handicap ${hcp.base}` + (hcp.allowance !== 100 ? ` at ${hcp.allowance}% = ${adjustedHandicap(round)}` : '')
+      : 'Add playing handicap';
+    hcpLine = `<p class="hcp-line"><button class="inline-btn" data-action="edit-handicap">${label}</button></p>`;
+  }
+  const modeBar = hasExtras ? `
+        <div class="modebar" role="group" aria-label="Score type">
+          <button class="modebtn${net ? '' : ' on'}" data-action="card-mode" data-mode="gross">Gross</button>
+          <button class="modebtn${net ? ' on' : ''}" data-action="card-mode" data-mode="net">Net</button>
+        </div>` : '';
+  const noIndexNote = round.handicap && hasInfo && !hasExtras
+    ? '<p class="note">Extra strokes need a hole index on every hole played. Add it under My courses; it applies to new rounds.</p>'
+    : '';
+
   return `
     <div class="screen">
       <header class="top">
@@ -737,11 +815,14 @@ function renderCard() {
       </header>
       <main class="scroll">
         <p class="card-title">${esc(roundLabel(round))}<small>${esc(dateFmt.format(round.createdAt))} ${esc(timeFmt.format(round.createdAt))}</small></p>
+        ${hcpLine}
+        ${modeBar}
         <table class="score">
           <thead><tr>
             <th>Hole</th>
             ${hasInfo ? '<th>Par</th><th>Meters</th>' : ''}
-            <th>Strokes</th>
+            ${hasExtras ? '<th>Extra</th>' : ''}
+            <th>${net ? 'Net' : 'Strokes'}</th>
             ${hasInfo ? '<th>+/−</th>' : ''}
             <th>Longest</th>
           </tr></thead>
@@ -749,12 +830,14 @@ function renderCard() {
           <tfoot><tr>
             <td>Total</td>
             ${hasInfo ? `<td>${parSum}</td><td>${metersSum || '–'}</td>` : ''}
-            <td>${totals.total}</td>
-            ${hasInfo ? `<td class="${toParClass(totals.toPar)}">${fmtToPar(totals.toPar)}</td>` : ''}
+            ${hasExtras ? `<td>${extraSum || '–'}</td>` : ''}
+            <td>${shownTotal}</td>
+            ${hasInfo ? `<td class="${toParClass(diffTotal)}">${fmtToPar(diffTotal)}</td>` : ''}
             <td>${longestAll ? fmtDist(longestAll) : '–'}</td>
           </tr></tfoot>
         </table>
-        ${hasInfo ? '<p class="note">Par and length were copied from the course when the round started. +/− is strokes minus par on holes you have played. E means even par.</p>' : ''}
+        ${noIndexNote}
+        ${hasInfo ? `<p class="note">Par, length and index were copied from the course when the round started. +/− is ${net ? 'net strokes' : 'strokes'} minus par on holes you have played. E means even par.${hasExtras ? ' Extra is the handicap strokes you get on each hole.' : ''}</p>` : ''}
         ${clubRows ? `
           <h3 class="score-h3">Clubs</h3>
           <table class="score">
@@ -792,6 +875,15 @@ function renderSheet() {
           <label><input type="radio" name="nine" value="front" checked><span>Front 9 (1–9)</span></label>
           <label><input type="radio" name="nine" value="back"><span>Back 9 (10–18)</span></label>
         </div>
+        <div class="row2" id="hcp-row" hidden>
+          <label class="field"><span>Playing handicap</span>
+            <input id="round-hcp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="Optional" autocomplete="off">
+          </label>
+          <label class="field"><span>Adjustment</span>
+            <select id="round-allowance">${allowanceOptions(db.allowance)}</select>
+          </label>
+        </div>
+        <p class="hint" id="hcp-hint" hidden style="margin-top:8px">${HCP_HINT}</p>
         <button class="primary" data-action="create-round">Start round</button>
         <button class="link" data-action="close-sheet">Cancel</button>
       </div>`;
@@ -802,9 +894,31 @@ function renderSheet() {
       <div class="backdrop" data-action="close-sheet"></div>
       <div class="sheet" role="dialog" aria-modal="true" aria-label="Import courses">
         <h2>Import from JSON</h2>
-        <p class="hint">Paste one course or a list of courses. Each course has a name and 9 or 18 holes with par and length in meters, for example <code>{"name":"My Course","holes":[{"par":4,"length":352}, …]}</code></p>
+        <p class="hint">Paste one course or a list of courses. Each course has a name and 9 or 18 holes with par and length in meters, for example <code>{"name":"My Course","holes":[{"par":4,"length":352,"index":7}, …]}</code>. Index (1–18) is optional.</p>
         <textarea class="json-box" id="import-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
         <button class="primary" data-action="do-import">Import</button>
+        <button class="link" data-action="close-sheet">Cancel</button>
+      </div>`;
+  }
+
+  if (sheet.type === 'handicap') {
+    const current = (getRound() || {}).handicap || null;
+    return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Playing handicap">
+        <h2>Playing handicap</h2>
+        <div class="row2">
+          <label class="field"><span>Playing handicap</span>
+            <input id="hcp-edit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off"
+                   value="${current ? current.base : ''}">
+          </label>
+          <label class="field"><span>Adjustment</span>
+            <select id="allowance-edit">${allowanceOptions(current ? current.allowance : db.allowance)}</select>
+          </label>
+        </div>
+        <p class="hint" style="margin-top:8px">${HCP_HINT}</p>
+        <button class="primary" data-action="save-handicap">Save</button>
+        ${current ? '<button class="danger" data-action="remove-handicap" style="margin-top:10px">Remove handicap</button>' : ''}
         <button class="link" data-action="close-sheet">Cancel</button>
       </div>`;
   }
@@ -870,49 +984,74 @@ function popCounter() {
 
 /* ---------- New round form ---------- */
 
+// Reads the course and hole selection from the "New round" sheet.
+function readNewRoundSelection() {
+  const select = document.getElementById('round-course');
+  const course = select ? db.courses.find(c => c.id === select.value) || null : null;
+  const holesInput = document.querySelector('input[name="holes"]:checked');
+  const nineInput = document.querySelector('input[name="nine"]:checked');
+  let holeCount = holesInput ? Number(holesInput.value) || 18 : 18;
+  if (course && course.holes.length === 9) holeCount = 9;
+  const backNine = !!course && course.holes.length === 18 && holeCount === 9 && !!nineInput && nineInput.value === 'back';
+  return { course, holeCount, startHole: backNine ? 10 : 1 };
+}
+
 // Keeps the "New round" sheet consistent with the selected course:
 // - the free-text name is only used when no course is selected
 // - a 9-hole course can only be played as 9 holes
 // - front/back nine is only asked for when playing 9 holes on an 18-hole course
+// - the handicap fields need a course, and warn when the holes to play have no index
 function syncNewRoundForm() {
   const select = document.getElementById('round-course');
-  const course = select ? db.courses.find(c => c.id === select.value) || null : null;
+  const selected = select ? db.courses.find(c => c.id === select.value) || null : null;
   const nameField = document.getElementById('round-name-field');
   const radio18 = document.querySelector('input[name="holes"][value="18"]');
   const radio9 = document.querySelector('input[name="holes"][value="9"]');
   const nineSeg = document.getElementById('nine-seg');
   if (!nameField || !radio18 || !radio9 || !nineSeg) return;
 
-  nameField.hidden = !!course;
-  if (course && course.holes.length === 9) {
+  nameField.hidden = !!selected;
+  if (selected && selected.holes.length === 9) {
     radio9.checked = true;
     radio18.disabled = true;
   } else {
     radio18.disabled = false;
   }
-  nineSeg.hidden = !(course && course.holes.length === 18 && radio9.checked);
+  nineSeg.hidden = !(selected && selected.holes.length === 18 && radio9.checked);
+
+  const hcpRow = document.getElementById('hcp-row');
+  const hcpHint = document.getElementById('hcp-hint');
+  if (hcpRow && hcpHint) {
+    const { course, holeCount, startHole } = readNewRoundSelection();
+    hcpRow.hidden = !course;
+    hcpHint.hidden = !course;
+    if (course) {
+      const played = course.holes.slice(startHole - 1, startHole - 1 + holeCount);
+      hcpHint.textContent = played.every(h => Number.isInteger(h.index)) ? HCP_HINT : NO_INDEX_HINT;
+    }
+  }
 }
 
 function createRound() {
-  const select = document.getElementById('round-course');
-  const course = select ? db.courses.find(c => c.id === select.value) || null : null;
+  const { course, holeCount, startHole } = readNewRoundSelection();
   const nameInput = document.getElementById('round-name');
-  const holesInput = document.querySelector('input[name="holes"]:checked');
-  const nineInput = document.querySelector('input[name="nine"]:checked');
 
-  let holeCount = holesInput ? Number(holesInput.value) || 18 : 18;
-  if (course && course.holes.length === 9) holeCount = 9;
-  const backNine = !!course && course.holes.length === 18 && holeCount === 9 && !!nineInput && nineInput.value === 'back';
-  const startHole = backNine ? 10 : 1;
-
-  // Copy par and length so later edits to the course don't change this round.
+  // Copy par, length and index so later edits to the course don't change this round.
   const holeData = {};
   if (course) {
     for (let i = 0; i < holeCount; i++) {
       const hole = course.holes[startHole - 1 + i];
-      if (hole) holeData[startHole + i] = { par: hole.par, length: hole.length };
+      if (hole) holeData[startHole + i] = { par: hole.par, length: hole.length, index: Number.isInteger(hole.index) ? hole.index : null };
     }
   }
+
+  let handicap = null;
+  const hcpInput = document.getElementById('round-hcp');
+  const allowanceSelect = document.getElementById('round-allowance');
+  const allowance = allowanceSelect ? Number(allowanceSelect.value) || 100 : 100;
+  const hcpDigits = hcpInput ? hcpInput.value.replace(/\D/g, '') : '';
+  if (course && hcpDigits !== '') handicap = { base: parseInt(hcpDigits, 10), allowance };
+  if (allowanceSelect) db.allowance = allowance;
 
   const round = {
     id: newId(),
@@ -924,6 +1063,7 @@ function createRound() {
     sourceHoleCount: course ? course.holes.length : holeCount,
     currentHole: startHole,
     holeData,
+    handicap,
     holes: {}
   };
   db.rounds.push(round);
@@ -933,7 +1073,7 @@ function createRound() {
 /* ---------- Course editor and import ---------- */
 
 function emptyHoles() {
-  return Array.from({ length: 18 }, () => ({ par: 4, length: null }));
+  return Array.from({ length: 18 }, () => ({ par: 4, length: null, index: null }));
 }
 
 function startNewCourse() {
@@ -946,7 +1086,7 @@ function startEditCourse(id) {
   const course = db.courses.find(c => c.id === id);
   if (!course) return;
   const all = emptyHoles();
-  course.holes.forEach((h, i) => { all[i] = { par: h.par, length: h.length }; });
+  course.holes.forEach((h, i) => { all[i] = { par: h.par, length: h.length, index: Number.isInteger(h.index) ? h.index : null }; });
   draft = { id: course.id, name: course.name, count: course.holes.length, all };
   view = 'course-edit';
   render();
@@ -960,7 +1100,16 @@ function saveCourse() {
     if (nameInput) nameInput.focus();
     return;
   }
-  const holes = draft.all.slice(0, draft.count).map(h => ({ par: h.par, length: h.length }));
+  const indices = draft.all.slice(0, draft.count).map(h => h.index).filter(v => v !== null && v !== undefined);
+  if (indices.some(v => !Number.isInteger(v) || v < 1 || v > 18)) {
+    toast('Hole index must be between 1 and 18');
+    return;
+  }
+  if (new Set(indices).size !== indices.length) {
+    toast('Each hole index can only be used once');
+    return;
+  }
+  const holes = draft.all.slice(0, draft.count).map(h => ({ par: h.par, length: h.length, index: h.index === undefined ? null : h.index }));
   const existing = draft.id ? db.courses.find(c => c.id === draft.id) : null;
   if (existing) {
     existing.name = name;
@@ -1003,8 +1152,15 @@ function parseCourse(item) {
       if (!Number.isFinite(length) || length < 0 || length > 1000) return null;
       length = Math.round(length);
     }
-    holes.push({ par, length });
+    let index = null;
+    if (h.index !== undefined && h.index !== null && h.index !== '') {
+      index = Number(h.index);
+      if (!Number.isInteger(index) || index < 1 || index > 18) return null;
+    }
+    holes.push({ par, length, index });
   }
+  const used = holes.map(h => h.index).filter(v => v !== null);
+  if (new Set(used).size !== used.length) return null;
   return { id: newId(), name: item.name.trim().slice(0, 60), holes };
 }
 
@@ -1041,6 +1197,7 @@ function importCourses(text) {
 
 function openRound(id) {
   roundId = id;
+  cardMode = 'gross';
   view = 'round';
   sheet = null;
   db.activeRoundId = id;
@@ -1103,6 +1260,19 @@ function undoStroke() {
   const list = holeList(round, round.currentHole);
   if (!list.length) return;
   list.pop();
+  saveDb();
+  render();
+}
+
+function saveHandicap() {
+  const round = getRound();
+  const input = document.getElementById('hcp-edit');
+  const select = document.getElementById('allowance-edit');
+  const digits = input ? input.value.replace(/\D/g, '') : '';
+  const allowance = select ? Number(select.value) || 100 : 100;
+  round.handicap = digits === '' ? null : { base: parseInt(digits, 10), allowance };
+  db.allowance = allowance;
+  sheet = null;
   saveDb();
   render();
 }
@@ -1205,6 +1375,15 @@ app.addEventListener('click', event => {
     case 'back': closeRound(); break;
     case 'scorecard': view = 'card'; render(); break;
     case 'card-back': view = 'round'; render(); break;
+    case 'card-mode': cardMode = el.dataset.mode === 'net' ? 'net' : 'gross'; render(); break;
+    case 'edit-handicap': sheet = { type: 'handicap' }; render(); break;
+    case 'save-handicap': saveHandicap(); break;
+    case 'remove-handicap':
+      round.handicap = null;
+      sheet = null;
+      saveDb();
+      render();
+      break;
     case 'goto-hole':
       round.currentHole = Number(el.dataset.hole);
       view = 'round';
@@ -1254,7 +1433,7 @@ app.addEventListener('change', event => {
       if (radio) radio.checked = true;
     }
     syncNewRoundForm();
-  } else if (target.name === 'holes') {
+  } else if (target.name === 'holes' || target.name === 'nine') {
     syncNewRoundForm();
   } else if (target.name === 'course-count' && draft) {
     const nameInput = document.getElementById('course-name');
@@ -1264,14 +1443,19 @@ app.addEventListener('change', event => {
   }
 });
 
-// Length fields in the course editor: keep digits only and update the draft as you type.
+// Number fields in the course editor: keep digits only and update the draft as you type.
 app.addEventListener('input', event => {
   const target = event.target;
-  if (draft && target.classList.contains('len')) {
+  if (!draft) return;
+  if (target.classList.contains('len')) {
     const digits = target.value.replace(/\D/g, '').slice(0, 4);
     if (digits !== target.value) target.value = digits;
     draft.all[Number(target.dataset.i)].length = digits ? parseInt(digits, 10) : null;
     updateDraftTotals();
+  } else if (target.classList.contains('idx')) {
+    const digits = target.value.replace(/\D/g, '').slice(0, 2);
+    if (digits !== target.value) target.value = digits;
+    draft.all[Number(target.dataset.i)].index = digits ? parseInt(digits, 10) : null;
   }
 });
 
