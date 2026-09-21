@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="sv">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Slagräknare">
+<meta name="apple-mobile-web-app-title" content="Strokes">
 <meta name="theme-color" content="#EDF0E6">
-<title>Slagräknare</title>
+<title>Stroke Counter</title>
 <style>
   :root {
     --paper: #EDF0E6;
@@ -53,7 +53,7 @@
   .gps.ok::before { background: #D9A21B; }
   .gps.bad::before { background: var(--flag); }
 
-  /* Rondvy */
+  /* Round screen */
   .holebar { display: flex; align-items: center; justify-content: space-between; padding: 2px 14px; }
   .step { width: 52px; height: 52px; border-radius: 50%; border: 2px solid var(--fairway); background: transparent;
           color: var(--fairway); font-size: 30px; line-height: 1; font-weight: 700; padding: 0 0 4px; }
@@ -86,6 +86,7 @@
   .chip { min-height: 40px; border-radius: 10px; border: 2px solid var(--line); background: var(--paper);
           font-weight: 700; font-size: 14px; padding: 0 2px; }
   .chip.on { background: var(--sand); border-color: var(--ink); }
+  .chip-bag { border-style: dashed; background: transparent; color: var(--mute); }
   .actions { display: flex; gap: 10px; }
   .undo { width: 88px; min-height: 76px; border-radius: 20px; border: 2px solid var(--line); background: transparent;
           font-weight: 700; color: var(--mute); }
@@ -94,7 +95,7 @@
          font-size: 30px; font-weight: 800; box-shadow: 0 4px 0 var(--fairway-deep); }
   .add:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--fairway-deep); }
 
-  /* Ronder */
+  /* Rounds list */
   .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 14px; -webkit-overflow-scrolling: touch; }
   .rounds { list-style: none; margin: 0; padding: 0; }
   .round-item { display: flex; gap: 6px; margin-bottom: 10px; align-items: stretch; }
@@ -114,13 +115,14 @@
   .danger { width: 100%; min-height: 48px; border-radius: 14px; border: 2px solid var(--flag); background: none;
             color: var(--flag); font-weight: 700; margin-top: 4px; }
 
-  /* Sheet */
+  /* Bottom sheet */
   .backdrop { position: fixed; inset: 0; background: rgba(23, 36, 27, .45); z-index: 10; }
   .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; background: var(--white);
            border-radius: 22px 22px 0 0; padding: 18px 16px calc(14px + var(--safe-b)); max-height: 88%; overflow-y: auto;
            animation: rise .18s ease-out; }
   .sheet h2 { margin: 0 0 12px; font-size: 22px; font-weight: 800; }
   .hint { margin: 0 0 8px; color: var(--mute); font-size: 14px; }
+  .sheet .chips + .hint { margin: -2px 0 14px; }
   .field { display: block; }
   .field span { display: block; font-size: 14px; color: var(--mute); font-weight: 600; margin-bottom: 6px; }
   .field input { width: 100%; min-height: 50px; border: 2px solid var(--line); border-radius: 12px; padding: 0 12px;
@@ -134,7 +136,7 @@
   .seg input:focus-visible + span { outline: 3px solid var(--fairway); outline-offset: 2px; }
   @keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 
-  /* Scorekort */
+  /* Scorecard */
   .score { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   .score th { text-align: right; font-size: 14px; color: var(--mute); font-weight: 600; padding: 8px 4px; }
   .score th:first-child, .score td:first-child { text-align: left; }
@@ -159,12 +161,12 @@
 </head>
 <body>
 <div id="app"></div>
-<noscript>Slagräknaren kräver JavaScript.</noscript>
+<noscript>Stroke Counter requires JavaScript.</noscript>
 
 <script>
 'use strict';
 
-/* ---------- Data & lagring ---------- */
+/* ---------- Data and storage ---------- */
 
 const STORAGE_KEY = 'golf-strokes.v1';
 const CLUBS = ['Driver', '3W', '5W', 'Hybrid', '4i', '5i', '6i', '7i', '8i', '9i', 'PW', 'GW', 'SW', 'LW', 'Putter'];
@@ -174,8 +176,9 @@ const FIX_MAX_AGE_MS = 30000;
   db = {
     rounds: [{ id, name, createdAt, holeCount, currentHole,
                holes: { "1": [stroke, ...], "2": [...] } }],
-    club: 'Driver',            // vald klubba för nästa slag
-    activeRoundId: null        // rond som var öppen sist
+    activeClubs: [...],        // clubs in the bag, shown when adding a stroke
+    club: 'Driver',            // club selected for the next stroke
+    activeRoundId: null        // round that was open last time
   }
   stroke = { t, club, lat, lng, acc, landing?: { lat, lng, acc } }
 */
@@ -186,29 +189,34 @@ function loadDb() {
     if (raw) {
       const data = JSON.parse(raw);
       if (data && Array.isArray(data.rounds)) {
+        let activeClubs = Array.isArray(data.activeClubs)
+          ? CLUBS.filter(c => data.activeClubs.includes(c))
+          : [...CLUBS];
+        if (activeClubs.length === 0) activeClubs = [...CLUBS];
         return {
           rounds: data.rounds,
-          club: CLUBS.includes(data.club) ? data.club : 'Driver',
+          activeClubs,
+          club: activeClubs.includes(data.club) ? data.club : activeClubs[0],
           activeRoundId: data.activeRoundId || null
         };
       }
     }
-  } catch (err) { /* ignorera och börja om */ }
-  return { rounds: [], club: 'Driver', activeRoundId: null };
+  } catch (err) { /* ignore and start fresh */ }
+  return { rounds: [], activeClubs: [...CLUBS], club: CLUBS[0], activeRoundId: null };
 }
 
 function saveDb() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
   } catch (err) {
-    toast('Kunde inte spara. Lagringen är full eller blockerad.');
+    toast('Could not save. Storage is full or blocked.');
   }
 }
 
 let db = loadDb();
 let view = 'list';       // 'list' | 'round' | 'card'
 let roundId = null;
-let sheet = null;        // null | { type: 'new' } | { type: 'stroke', index }
+let sheet = null;        // null | { type: 'new' } | { type: 'bag' } | { type: 'stroke', index }
 let lastFix = null;
 let gpsErrorCode = null;
 let watchId = null;
@@ -217,10 +225,10 @@ let toastTimer = null;
 
 const app = document.getElementById('app');
 
-/* ---------- Hjälpfunktioner ---------- */
+/* ---------- Helpers ---------- */
 
-const dateFmt = new Intl.DateTimeFormat('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' });
-const timeFmt = new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', minute: '2-digit' });
+const dateFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+const timeFmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' });
 
 function esc(value) {
   return String(value).replace(/[&<>"']/g, ch => (
@@ -252,6 +260,7 @@ function hasPos(p) {
   return !!p && typeof p.lat === 'number' && typeof p.lng === 'number';
 }
 
+// Great-circle distance in meters (haversine formula).
 function meters(a, b) {
   const R = 6371000;
   const rad = Math.PI / 180;
@@ -262,8 +271,8 @@ function meters(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-/* Avstånd för slag i: från slagets position till manuell landning,
-   annars till positionen för nästa slag på samma hål. */
+// Distance for stroke i: from the stroke position to the manually measured
+// landing spot, otherwise to the position of the next stroke on the same hole.
 function shotDistance(list, i) {
   const stroke = list[i];
   if (!stroke || stroke.club === 'Putter' || !hasPos(stroke)) return null;
@@ -296,7 +305,7 @@ function toast(message) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
-/* ---------- GPS & skärmlås ---------- */
+/* ---------- GPS and screen wake lock ---------- */
 
 function onFix(pos) {
   gpsErrorCode = null;
@@ -329,11 +338,11 @@ function updateGps() {
   const el = document.getElementById('gps');
   if (!el) return;
   let cls = 'wait';
-  let text = 'Söker GPS…';
+  let text = 'Searching GPS…';
   if (!('geolocation' in navigator)) {
-    cls = 'bad'; text = 'GPS saknas';
+    cls = 'bad'; text = 'No GPS';
   } else if (gpsErrorCode === 1) {
-    cls = 'bad'; text = 'Platsåtkomst nekad';
+    cls = 'bad'; text = 'Location access denied';
   } else if (freshFix()) {
     const acc = Math.round(lastFix.acc);
     cls = acc <= 10 ? 'good' : (acc <= 25 ? 'ok' : 'bad');
@@ -353,7 +362,7 @@ async function requestWake() {
 }
 
 function releaseWake() {
-  try { if (wakeLock) wakeLock.release(); } catch (err) { /* inget */ }
+  try { if (wakeLock) wakeLock.release(); } catch (err) { /* nothing to do */ }
   wakeLock = null;
 }
 
@@ -367,8 +376,9 @@ setInterval(updateGps, 5000);
 
 /* ---------- Rendering ---------- */
 
-function chipsHtml(active, action) {
-  return CLUBS.map(c =>
+// Renders a grid of club buttons. `clubs` is the list to show, `active` the highlighted one.
+function chipsHtml(clubs, active, action) {
+  return clubs.map(c =>
     `<button class="chip${c === active ? ' on' : ''}" data-action="${action}" data-club="${c}">${c}</button>`
   ).join('');
 }
@@ -382,24 +392,25 @@ function renderList() {
       <li class="round-item">
         <button class="round-open" data-action="open-round" data-id="${esc(r.id)}">
           <span class="rn">${esc(roundLabel(r))}</span>
-          <span class="rm">${esc(when)}, ${played} av ${r.holeCount} hål</span>
-          <span class="rt"><b>${total}</b>slag</span>
+          <span class="rm">${esc(when)}, ${played} of ${r.holeCount} holes</span>
+          <span class="rt"><b>${total}</b>strokes</span>
         </button>
-        <button class="round-del" data-action="delete-round" data-id="${esc(r.id)}" aria-label="Ta bort rond">✕</button>
+        <button class="round-del" data-action="delete-round" data-id="${esc(r.id)}" aria-label="Delete round">✕</button>
       </li>`;
   }).join('');
 
   return `
     <div class="screen">
-      <header class="top"><h1>Slagräknare</h1></header>
+      <header class="top"><h1>Stroke Counter</h1></header>
       <main class="scroll">
         ${rounds.length
           ? `<ul class="rounds">${items}</ul>`
-          : `<p class="empty">Inga ronder än. Starta en ny när du står på första tee.</p>`}
+          : `<p class="empty">No rounds yet. Start a new one when you're on the first tee.</p>`}
       </main>
       <footer class="dock">
-        <button class="primary" data-action="new-round">Ny rond</button>
-        <button class="link" data-action="export">Kopiera all data som JSON</button>
+        <button class="primary" data-action="new-round">New round</button>
+        <button class="link" data-action="edit-bag">My bag</button>
+        <button class="link" data-action="export">Copy all data as JSON</button>
       </footer>
     </div>`;
 }
@@ -419,7 +430,7 @@ function renderRound() {
     } else if (d) {
       right = `<span class="dist">${fmtDist(d)}</span>`;
     } else if (i === last && hasPos(s)) {
-      right = '<button class="measure" data-action="measure">Mät hit</button>';
+      right = '<button class="measure" data-action="measure">Measure here</button>';
     } else {
       right = '<span class="dist muted">–</span>';
     }
@@ -428,7 +439,7 @@ function renderRound() {
         <button class="stroke" data-action="edit-stroke" data-index="${i}">
           <span class="n">${i + 1}</span>
           <span class="club">${esc(s.club)}</span>
-          ${hasPos(s) ? '' : '<span class="nopos">ingen position</span>'}
+          ${hasPos(s) ? '' : '<span class="nopos">no position</span>'}
         </button>
         ${right}
       </li>`;
@@ -437,27 +448,30 @@ function renderRound() {
   return `
     <div class="screen">
       <header class="top">
-        <button class="ghost" data-action="back">‹ Ronder</button>
-        <div class="gps wait" id="gps">Söker GPS…</div>
-        <button class="ghost" data-action="scorecard">Scorekort</button>
+        <button class="ghost" data-action="back">‹ Rounds</button>
+        <div class="gps wait" id="gps">Searching GPS…</div>
+        <button class="ghost" data-action="scorecard">Scorecard</button>
       </header>
       <div class="holebar">
-        <button class="step" data-action="prev-hole" ${hole <= 1 ? 'disabled' : ''} aria-label="Föregående hål">‹</button>
-        <div class="holetitle">Hål ${hole}<small>av ${round.holeCount}</small></div>
-        <button class="step" data-action="next-hole" ${hole >= round.holeCount ? 'disabled' : ''} aria-label="Nästa hål">›</button>
+        <button class="step" data-action="prev-hole" ${hole <= 1 ? 'disabled' : ''} aria-label="Previous hole">‹</button>
+        <div class="holetitle">Hole ${hole}<small>of ${round.holeCount}</small></div>
+        <button class="step" data-action="next-hole" ${hole >= round.holeCount ? 'disabled' : ''} aria-label="Next hole">›</button>
       </div>
       <section class="counter" aria-live="polite">
         <div class="big">${list.length}</div>
-        <div class="sub">slag på hålet, ${total} på ronden</div>
+        <div class="sub">strokes on this hole, ${total} in the round</div>
       </section>
       <ol class="strokes">
-        ${rows || '<li class="hint-empty">Tryck +1 slag direkt efter varje slag, medan du står kvar där du slog. Avståndet mäts till nästa slag.</li>'}
+        ${rows || '<li class="hint-empty">Tap +1 stroke right after each shot, while you are still standing where you hit from. Distance is measured to your next stroke.</li>'}
       </ol>
       <footer class="dock">
-        <div class="chips">${chipsHtml(db.club, 'pick-club')}</div>
+        <div class="chips">
+          ${chipsHtml(db.activeClubs, db.club, 'pick-club')}
+          <button class="chip chip-bag" data-action="edit-bag">Bag</button>
+        </div>
         <div class="actions">
-          <button class="undo" data-action="undo" ${list.length ? '' : 'disabled'}>Ångra</button>
-          <button class="add" data-action="add">+1 slag</button>
+          <button class="undo" data-action="undo" ${list.length ? '' : 'disabled'}>Undo</button>
+          <button class="add" data-action="add">+1 stroke</button>
         </div>
       </footer>
     </div>`;
@@ -483,7 +497,7 @@ function renderCard() {
     });
     rows += `
       <tr>
-        <td><button class="cellbtn" data-action="goto-hole" data-hole="${h}" aria-label="Gå till hål ${h}">${h}</button></td>
+        <td><button class="cellbtn" data-action="goto-hole" data-hole="${h}" aria-label="Go to hole ${h}">${h}</button></td>
         <td>${list.length || '–'}</td>
         <td>${longest ? fmtDist(longest) : '–'}</td>
       </tr>`;
@@ -497,24 +511,24 @@ function renderCard() {
   return `
     <div class="screen">
       <header class="top">
-        <button class="ghost" data-action="card-back">‹ Tillbaka</button>
-        <h2>Scorekort</h2>
+        <button class="ghost" data-action="card-back">‹ Back</button>
+        <h2>Scorecard</h2>
         <span style="width:64px"></span>
       </header>
       <main class="scroll">
         <p class="card-title">${esc(roundLabel(round))}<small>${esc(dateFmt.format(round.createdAt))} ${esc(timeFmt.format(round.createdAt))}</small></p>
         <table class="score">
-          <thead><tr><th>Hål</th><th>Slag</th><th>Längsta</th></tr></thead>
+          <thead><tr><th>Hole</th><th>Strokes</th><th>Longest</th></tr></thead>
           <tbody>${rows}</tbody>
-          <tfoot><tr><td>Summa</td><td>${total}</td><td>${longestAll ? fmtDist(longestAll) : '–'}</td></tr></tfoot>
+          <tfoot><tr><td>Total</td><td>${total}</td><td>${longestAll ? fmtDist(longestAll) : '–'}</td></tr></tfoot>
         </table>
         ${clubRows ? `
-          <h3 class="score-h3">Klubbar</h3>
+          <h3 class="score-h3">Clubs</h3>
           <table class="score">
-            <thead><tr><th>Klubba</th><th>Slag</th><th>Snitt</th><th>Längsta</th></tr></thead>
+            <thead><tr><th>Club</th><th>Shots</th><th>Avg</th><th>Longest</th></tr></thead>
             <tbody>${clubRows}</tbody>
           </table>
-          <p class="note">Putter räknas inte med. ≈ betyder att GPS-noggrannheten var sämre än ca 25 m.</p>` : ''}
+          <p class="note">Putter is not included. ≈ means GPS accuracy was worse than about 25 m.</p>` : ''}
       </main>
     </div>`;
 }
@@ -523,32 +537,55 @@ function renderSheet() {
   if (sheet.type === 'new') {
     return `
       <div class="backdrop" data-action="close-sheet"></div>
-      <div class="sheet" role="dialog" aria-modal="true" aria-label="Ny rond">
-        <h2>Ny rond</h2>
-        <label class="field"><span>Bana</span>
-          <input id="round-name" type="text" placeholder="Valfritt" autocomplete="off" maxlength="60">
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="New round">
+        <h2>New round</h2>
+        <label class="field"><span>Course</span>
+          <input id="round-name" type="text" placeholder="Optional" autocomplete="off" maxlength="60">
         </label>
-        <div class="seg" role="radiogroup" aria-label="Antal hål">
-          <label><input type="radio" name="holes" value="18" checked><span>18 hål</span></label>
-          <label><input type="radio" name="holes" value="9"><span>9 hål</span></label>
+        <div class="seg" role="radiogroup" aria-label="Number of holes">
+          <label><input type="radio" name="holes" value="18" checked><span>18 holes</span></label>
+          <label><input type="radio" name="holes" value="9"><span>9 holes</span></label>
         </div>
-        <button class="primary" data-action="create-round">Starta rond</button>
-        <button class="link" data-action="close-sheet">Avbryt</button>
+        <button class="primary" data-action="create-round">Start round</button>
+        <button class="link" data-action="close-sheet">Cancel</button>
       </div>`;
   }
+
+  if (sheet.type === 'bag') {
+    const chips = CLUBS.map(c => {
+      const on = db.activeClubs.includes(c);
+      return `<button class="chip${on ? ' on' : ''}" data-action="toggle-club" data-club="${c}" aria-pressed="${on}">${c}</button>`;
+    }).join('');
+    return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="My bag">
+        <h2>My bag</h2>
+        <p class="hint">Choose the clubs you carry. Only these show up when you add a stroke.</p>
+        <div class="chips">${chips}</div>
+        <p class="hint" id="bag-count">${bagCountText()}</p>
+        <button class="primary" data-action="close-sheet">Done</button>
+      </div>`;
+  }
+
   const round = getRound();
   const list = round ? holeList(round, round.currentHole) : [];
   const stroke = list[sheet.index];
   if (!stroke) return '';
+  // Show the bag clubs, plus this stroke's club if it has since been removed from the bag.
+  const options = CLUBS.filter(c => db.activeClubs.includes(c) || c === stroke.club);
   return `
     <div class="backdrop" data-action="close-sheet"></div>
-    <div class="sheet" role="dialog" aria-modal="true" aria-label="Ändra slag">
-      <h2>Slag ${sheet.index + 1} på hål ${round.currentHole}</h2>
-      <p class="hint">Välj klubba</p>
-      <div class="chips">${chipsHtml(stroke.club, 'set-club')}</div>
-      <button class="danger" data-action="delete-stroke">Ta bort slaget</button>
-      <button class="link" data-action="close-sheet">Avbryt</button>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Edit stroke">
+      <h2>Stroke ${sheet.index + 1} on hole ${round.currentHole}</h2>
+      <p class="hint">Choose club</p>
+      <div class="chips">${chipsHtml(options, stroke.club, 'set-club')}</div>
+      <button class="danger" data-action="delete-stroke">Delete stroke</button>
+      <button class="link" data-action="close-sheet">Cancel</button>
     </div>`;
+}
+
+function bagCountText() {
+  return `${db.activeClubs.length} of ${CLUBS.length} clubs in the bag`;
 }
 
 function render() {
@@ -570,7 +607,7 @@ function popCounter() {
   if (el && el.animate) el.animate([{ transform: 'scale(1.14)' }, { transform: 'scale(1)' }], { duration: 180, easing: 'ease-out' });
 }
 
-/* ---------- Handlingar ---------- */
+/* ---------- Actions ---------- */
 
 function openRound(id) {
   roundId = id;
@@ -620,6 +657,7 @@ function addStroke() {
   render();
   popCounter();
 
+  // No recent fix: ask for a single position and attach it to the stroke when it arrives.
   if (!fix && 'geolocation' in navigator) {
     navigator.geolocation.getCurrentPosition(pos => {
       stroke.lat = pos.coords.latitude;
@@ -627,7 +665,7 @@ function addStroke() {
       stroke.acc = pos.coords.accuracy;
       saveDb();
       if (view === 'round' && !sheet) render();
-    }, () => { /* slaget finns kvar, men utan position */ }, {
+    }, () => { /* the stroke is kept, just without a position */ }, {
       enableHighAccuracy: true, maximumAge: 0, timeout: 10000
     });
   }
@@ -639,7 +677,7 @@ function measureLanding() {
   const stroke = list[list.length - 1];
   if (!stroke || !hasPos(stroke)) return;
   const fix = freshFix();
-  if (!fix) { toast('Ingen GPS-position än'); return; }
+  if (!fix) { toast('No GPS fix yet'); return; }
   stroke.landing = { lat: fix.lat, lng: fix.lng, acc: fix.acc };
   saveDb();
   render();
@@ -661,23 +699,45 @@ function changeHole(delta) {
   render();
 }
 
+// Adds or removes a club from the bag. Updates the open sheet in place (no full
+// re-render, so the sheet doesn't flicker); the screen behind refreshes on close.
+function toggleClub(club) {
+  const isActive = db.activeClubs.includes(club);
+  if (isActive && db.activeClubs.length === 1) {
+    toast('Keep at least one club in the bag');
+    return;
+  }
+  db.activeClubs = CLUBS.filter(c => (c === club ? !isActive : db.activeClubs.includes(c)));
+  if (!db.activeClubs.includes(db.club)) db.club = db.activeClubs[0];
+  saveDb();
+
+  app.querySelectorAll('.sheet .chip').forEach(chip => {
+    const on = db.activeClubs.includes(chip.dataset.club);
+    chip.classList.toggle('on', on);
+    chip.setAttribute('aria-pressed', String(on));
+  });
+  const count = document.getElementById('bag-count');
+  if (count) count.textContent = bagCountText();
+}
+
 async function exportData() {
-  const text = JSON.stringify({ exportedAt: new Date().toISOString(), rounds: db.rounds }, null, 2);
+  const text = JSON.stringify({ exportedAt: new Date().toISOString(), rounds: db.rounds, activeClubs: db.activeClubs }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
-    toast('Kopierat till urklipp');
+    toast('Copied to clipboard');
   } catch (err) {
     const area = document.createElement('textarea');
     area.value = text;
     document.body.appendChild(area);
     area.select();
     let ok = false;
-    try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+    try { ok = document.execCommand('copy'); } catch (copyErr) { ok = false; }
     area.remove();
-    toast(ok ? 'Kopierat till urklipp' : 'Kunde inte kopiera');
+    toast(ok ? 'Copied to clipboard' : 'Could not copy');
   }
 }
 
+// One delegated click handler for the whole app.
 app.addEventListener('click', event => {
   const el = event.target.closest('[data-action]');
   if (!el || el.disabled) return;
@@ -689,13 +749,15 @@ app.addEventListener('click', event => {
     case 'create-round': createRound(); break;
     case 'open-round': openRound(el.dataset.id); break;
     case 'delete-round':
-      if (confirm('Ta bort ronden? Det går inte att ångra.')) {
+      if (confirm('Delete this round? This cannot be undone.')) {
         db.rounds = db.rounds.filter(r => r.id !== el.dataset.id);
         saveDb();
         render();
       }
       break;
     case 'export': exportData(); break;
+    case 'edit-bag': sheet = { type: 'bag' }; render(); break;
+    case 'toggle-club': toggleClub(el.dataset.club); break;
     case 'back': closeRound(); break;
     case 'scorecard': view = 'card'; render(); break;
     case 'card-back': view = 'round'; render(); break;
@@ -713,7 +775,7 @@ app.addEventListener('click', event => {
     case 'pick-club':
       db.club = el.dataset.club;
       saveDb();
-      app.querySelectorAll('.dock .chip').forEach(chip => {
+      app.querySelectorAll('.dock .chip[data-club]').forEach(chip => {
         chip.classList.toggle('on', chip.dataset.club === db.club);
       });
       break;
@@ -738,27 +800,27 @@ app.addEventListener('click', event => {
   }
 });
 
-/* ---------- Ikon (för "Lägg till på hemskärmen") ---------- */
+/* ---------- Icon (used by "Add to Home Screen") ---------- */
 
 (function makeIcon() {
   try {
-    const c = document.createElement('canvas');
-    c.width = c.height = 180;
-    const x = c.getContext('2d');
-    x.fillStyle = '#1E5233';
-    x.fillRect(0, 0, 180, 180);
-    x.fillStyle = '#EDF0E6';
-    x.fillRect(84, 34, 7, 104);
-    x.beginPath(); x.ellipse(88, 142, 36, 9, 0, 0, Math.PI * 2); x.fill();
-    x.fillStyle = '#C4372D';
-    x.beginPath(); x.moveTo(91, 34); x.lineTo(142, 55); x.lineTo(91, 76); x.closePath(); x.fill();
-    const url = c.toDataURL('image/png');
-    const touch = document.createElement('link');
-    touch.rel = 'apple-touch-icon'; touch.href = url;
-    const fav = document.createElement('link');
-    fav.rel = 'icon'; fav.href = url;
-    document.head.append(touch, fav);
-  } catch (err) { /* ikonen är valfri */ }
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 180;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#1E5233';
+    ctx.fillRect(0, 0, 180, 180);
+    ctx.fillStyle = '#EDF0E6';
+    ctx.fillRect(84, 34, 7, 104);
+    ctx.beginPath(); ctx.ellipse(88, 142, 36, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#C4372D';
+    ctx.beginPath(); ctx.moveTo(91, 34); ctx.lineTo(142, 55); ctx.lineTo(91, 76); ctx.closePath(); ctx.fill();
+    const url = canvas.toDataURL('image/png');
+    const touchIcon = document.createElement('link');
+    touchIcon.rel = 'apple-touch-icon'; touchIcon.href = url;
+    const favicon = document.createElement('link');
+    favicon.rel = 'icon'; favicon.href = url;
+    document.head.append(touchIcon, favicon);
+  } catch (err) { /* the icon is optional */ }
 })();
 
 /* ---------- Start ---------- */
