@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Slagräknare">
+<meta name="theme-color" content="#EDF0E6">
+<title>Slagräknare</title>
+<style>
+  :root {
+    --paper: #EDF0E6;
+    --white: #FBFCF8;
+    --ink: #17241B;
+    --mute: #5D6B60;
+    --line: #CBD2C0;
+    --fairway: #1E5233;
+    --fairway-deep: #143A24;
+    --sand: #E3D5AC;
+    --flag: #C4372D;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.35 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input { -webkit-user-select: text; user-select: text; }
+  button { font: inherit; color: inherit; touch-action: manipulation; cursor: pointer; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--fairway); outline-offset: 2px; }
+  #app { height: 100%; }
+
+  .screen { height: 100%; display: flex; flex-direction: column; padding-top: var(--safe-t); }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 14px; min-height: 52px; }
+  .top h1, .top h2 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+  .top h2 { font-size: 20px; }
+  .ghost { background: none; border: 0; color: var(--fairway); font-weight: 700; padding: 10px 4px; min-height: 44px; }
+
+  .gps { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; padding: 5px 11px;
+         border-radius: 999px; background: var(--white); border: 1px solid var(--line); }
+  .gps::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #9AA79B; }
+  .gps.good::before { background: #2E8B4E; }
+  .gps.ok::before { background: #D9A21B; }
+  .gps.bad::before { background: var(--flag); }
+
+  /* Rondvy */
+  .holebar { display: flex; align-items: center; justify-content: space-between; padding: 2px 14px; }
+  .step { width: 52px; height: 52px; border-radius: 50%; border: 2px solid var(--fairway); background: transparent;
+          color: var(--fairway); font-size: 30px; line-height: 1; font-weight: 700; padding: 0 0 4px; }
+  .step:disabled { opacity: .28; }
+  .holetitle { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
+  .holetitle small { font-size: 14px; font-weight: 600; color: var(--mute); margin-left: 6px; letter-spacing: 0; }
+
+  .counter { text-align: center; padding: 0 14px 8px; }
+  .big { font-size: 132px; font-size: clamp(84px, 17dvh, 140px); line-height: 1.02; font-weight: 800;
+         letter-spacing: -0.04em; font-variant-numeric: tabular-nums; color: var(--fairway-deep); }
+  .sub { color: var(--mute); font-size: 15px; font-weight: 600; }
+
+  .strokes { list-style: none; margin: 0; padding: 0 14px; flex: 1; min-height: 0; overflow-y: auto;
+             border-top: 1px solid var(--line); -webkit-overflow-scrolling: touch; }
+  .strokes li { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+  .stroke { flex: 1; display: flex; align-items: center; gap: 12px; background: none; border: 0; padding: 9px 0;
+            min-height: 52px; text-align: left; }
+  .n { width: 30px; height: 30px; border-radius: 50%; background: var(--fairway); color: var(--white);
+       display: grid; place-items: center; font-weight: 700; font-size: 15px; flex: none; }
+  .club { font-weight: 700; font-size: 18px; }
+  .nopos { color: var(--flag); font-size: 12px; font-weight: 600; }
+  .dist { font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .dist.muted { color: var(--mute); font-weight: 400; }
+  .measure { border: 2px solid var(--fairway); background: none; color: var(--fairway); border-radius: 999px;
+             padding: 6px 14px; font-weight: 700; font-size: 14px; min-height: 38px; }
+  .hint-empty { padding: 18px 0; color: var(--mute); font-size: 15px; }
+
+  .dock { padding: 10px 14px calc(10px + var(--safe-b)); background: var(--white); border-top: 1px solid var(--line); }
+  .chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px; }
+  .chip { min-height: 40px; border-radius: 10px; border: 2px solid var(--line); background: var(--paper);
+          font-weight: 700; font-size: 14px; padding: 0 2px; }
+  .chip.on { background: var(--sand); border-color: var(--ink); }
+  .actions { display: flex; gap: 10px; }
+  .undo { width: 88px; min-height: 76px; border-radius: 20px; border: 2px solid var(--line); background: transparent;
+          font-weight: 700; color: var(--mute); }
+  .undo:disabled { opacity: .4; }
+  .add { flex: 1; min-height: 76px; border-radius: 20px; border: 0; background: var(--fairway); color: var(--white);
+         font-size: 30px; font-weight: 800; box-shadow: 0 4px 0 var(--fairway-deep); }
+  .add:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--fairway-deep); }
+
+  /* Ronder */
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 14px; -webkit-overflow-scrolling: touch; }
+  .rounds { list-style: none; margin: 0; padding: 0; }
+  .round-item { display: flex; gap: 6px; margin-bottom: 10px; align-items: stretch; }
+  .round-open { flex: 1; display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: center;
+                text-align: left; background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }
+  .rn { grid-column: 1; font-weight: 800; font-size: 18px; }
+  .rm { grid-column: 1; color: var(--mute); font-size: 14px; }
+  .rt { grid-column: 2; grid-row: 1 / span 2; text-align: right; color: var(--mute); font-size: 13px; font-weight: 600; }
+  .rt b { display: block; font-size: 36px; line-height: 1; color: var(--fairway-deep); font-weight: 800; font-variant-numeric: tabular-nums; }
+  .round-del { width: 44px; border: 0; background: none; color: var(--mute); font-size: 18px; }
+  .empty { color: var(--mute); padding: 24px 4px; font-size: 17px; }
+
+  .primary { width: 100%; min-height: 58px; border-radius: 16px; border: 0; background: var(--fairway); color: var(--white);
+             font-weight: 800; font-size: 20px; box-shadow: 0 3px 0 var(--fairway-deep); }
+  .primary:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--fairway-deep); }
+  .link { width: 100%; min-height: 44px; background: none; border: 0; color: var(--mute); padding: 10px; font-weight: 600; }
+  .danger { width: 100%; min-height: 48px; border-radius: 14px; border: 2px solid var(--flag); background: none;
+            color: var(--flag); font-weight: 700; margin-top: 4px; }
+
+  /* Sheet */
+  .backdrop { position: fixed; inset: 0; background: rgba(23, 36, 27, .45); z-index: 10; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; background: var(--white);
+           border-radius: 22px 22px 0 0; padding: 18px 16px calc(14px + var(--safe-b)); max-height: 88%; overflow-y: auto;
+           animation: rise .18s ease-out; }
+  .sheet h2 { margin: 0 0 12px; font-size: 22px; font-weight: 800; }
+  .hint { margin: 0 0 8px; color: var(--mute); font-size: 14px; }
+  .field { display: block; }
+  .field span { display: block; font-size: 14px; color: var(--mute); font-weight: 600; margin-bottom: 6px; }
+  .field input { width: 100%; min-height: 50px; border: 2px solid var(--line); border-radius: 12px; padding: 0 12px;
+                 font: inherit; font-size: 17px; background: var(--paper); color: var(--ink); }
+  .seg { display: flex; gap: 8px; margin: 14px 0 16px; }
+  .seg label { flex: 1; position: relative; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg span { display: block; text-align: center; padding: 13px 8px; border-radius: 12px; border: 2px solid var(--line);
+              font-weight: 700; }
+  .seg input:checked + span { background: var(--sand); border-color: var(--ink); }
+  .seg input:focus-visible + span { outline: 3px solid var(--fairway); outline-offset: 2px; }
+  @keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* Scorekort */
+  .score { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .score th { text-align: right; font-size: 14px; color: var(--mute); font-weight: 600; padding: 8px 4px; }
+  .score th:first-child, .score td:first-child { text-align: left; }
+  .score td { text-align: right; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 18px; font-weight: 600; }
+  .score tfoot td { font-weight: 800; border-bottom: 0; border-top: 2px solid var(--ink); font-size: 19px; }
+  .cellbtn { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--sand); font-weight: 800; font-size: 16px; }
+  .card-title { margin: 6px 0 10px; font-size: 20px; font-weight: 800; }
+  .card-title small { display: block; font-size: 14px; color: var(--mute); font-weight: 600; }
+  .score-h3 { margin: 26px 0 4px; font-size: 18px; font-weight: 800; }
+  .note { color: var(--mute); font-size: 13px; margin: 8px 0 0; }
+
+  #toast { position: fixed; top: calc(12px + var(--safe-t)); left: 50%; transform: translateX(-50%); z-index: 50;
+           background: var(--ink); color: var(--white); padding: 10px 16px; border-radius: 999px; font-size: 15px; font-weight: 600;
+           opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90%; text-align: center; }
+  #toast.show { opacity: 1; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sheet { animation: none; }
+    #toast { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<noscript>Slagräknaren kräver JavaScript.</noscript>
+
+<script>
+'use strict';
+
+/* ---------- Data & lagring ---------- */
+
+const STORAGE_KEY = 'golf-strokes.v1';
+const CLUBS = ['Driver', '3W', '5W', 'Hybrid', '4i', '5i', '6i', '7i', '8i', '9i', 'PW', 'GW', 'SW', 'LW', 'Putter'];
+const FIX_MAX_AGE_MS = 30000;
+
+/*
+  db = {
+    rounds: [{ id, name, createdAt, holeCount, currentHole,
+               holes: { "1": [stroke, ...], "2": [...] } }],
+    club: 'Driver',            // vald klubba för nästa slag
+    activeRoundId: null        // rond som var öppen sist
+  }
+  stroke = { t, club, lat, lng, acc, landing?: { lat, lng, acc } }
+*/
+
+function loadDb() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (data && Array.isArray(data.rounds)) {
+        return {
+          rounds: data.rounds,
+          club: CLUBS.includes(data.club) ? data.club : 'Driver',
+          activeRoundId: data.activeRoundId || null
+        };
+      }
+    }
+  } catch (err) { /* ignorera och börja om */ }
+  return { rounds: [], club: 'Driver', activeRoundId: null };
+}
+
+function saveDb() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  } catch (err) {
+    toast('Kunde inte spara. Lagringen är full eller blockerad.');
+  }
+}
+
+let db = loadDb();
+let view = 'list';       // 'list' | 'round' | 'card'
+let roundId = null;
+let sheet = null;        // null | { type: 'new' } | { type: 'stroke', index }
+let lastFix = null;
+let gpsErrorCode = null;
+let watchId = null;
+let wakeLock = null;
+let toastTimer = null;
+
+const app = document.getElementById('app');
+
+/* ---------- Hjälpfunktioner ---------- */
+
+const dateFmt = new Intl.DateTimeFormat('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' });
+const timeFmt = new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', minute: '2-digit' });
+
+function esc(value) {
+  return String(value).replace(/[&<>"']/g, ch => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
+
+function getRound() {
+  return db.rounds.find(r => r.id === roundId) || null;
+}
+
+function holeList(round, hole) {
+  if (!round.holes[hole]) round.holes[hole] = [];
+  return round.holes[hole];
+}
+
+function roundTotals(round) {
+  let total = 0;
+  let played = 0;
+  for (let h = 1; h <= round.holeCount; h++) {
+    const n = (round.holes[h] || []).length;
+    total += n;
+    if (n > 0) played++;
+  }
+  return { total, played };
+}
+
+function hasPos(p) {
+  return !!p && typeof p.lat === 'number' && typeof p.lng === 'number';
+}
+
+function meters(a, b) {
+  const R = 6371000;
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 +
+            Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+/* Avstånd för slag i: från slagets position till manuell landning,
+   annars till positionen för nästa slag på samma hål. */
+function shotDistance(list, i) {
+  const stroke = list[i];
+  if (!stroke || stroke.club === 'Putter' || !hasPos(stroke)) return null;
+  const end = hasPos(stroke.landing) ? stroke.landing : (hasPos(list[i + 1]) ? list[i + 1] : null);
+  if (!end) return null;
+  return { m: meters(stroke, end), approx: (stroke.acc || 0) + (end.acc || 0) > 25 };
+}
+
+function fmtDist(d) {
+  if (!d) return '';
+  const m = Math.round(d.m);
+  return (d.approx ? '≈ ' : '') + (m < 1 ? '<1' : m) + ' m';
+}
+
+function roundLabel(round) {
+  return round.name || dateFmt.format(round.createdAt);
+}
+
+function toast(message) {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+/* ---------- GPS & skärmlås ---------- */
+
+function onFix(pos) {
+  gpsErrorCode = null;
+  lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, t: Date.now() };
+  updateGps();
+}
+
+function onGpsError(err) {
+  gpsErrorCode = err.code;
+  updateGps();
+}
+
+function startGps() {
+  if (!('geolocation' in navigator) || watchId !== null) return;
+  watchId = navigator.geolocation.watchPosition(onFix, onGpsError, {
+    enableHighAccuracy: true, maximumAge: 0, timeout: 30000
+  });
+}
+
+function stopGps() {
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+}
+
+function freshFix() {
+  return lastFix && Date.now() - lastFix.t < FIX_MAX_AGE_MS ? lastFix : null;
+}
+
+function updateGps() {
+  const el = document.getElementById('gps');
+  if (!el) return;
+  let cls = 'wait';
+  let text = 'Söker GPS…';
+  if (!('geolocation' in navigator)) {
+    cls = 'bad'; text = 'GPS saknas';
+  } else if (gpsErrorCode === 1) {
+    cls = 'bad'; text = 'Platsåtkomst nekad';
+  } else if (freshFix()) {
+    const acc = Math.round(lastFix.acc);
+    cls = acc <= 10 ? 'good' : (acc <= 25 ? 'ok' : 'bad');
+    text = 'GPS ±' + acc + ' m';
+  }
+  el.className = 'gps ' + cls;
+  el.textContent = text;
+}
+
+async function requestWake() {
+  try {
+    if ('wakeLock' in navigator && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    }
+  } catch (err) { wakeLock = null; }
+}
+
+function releaseWake() {
+  try { if (wakeLock) wakeLock.release(); } catch (err) { /* inget */ }
+  wakeLock = null;
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && view !== 'list') {
+    startGps();
+    requestWake();
+  }
+});
+setInterval(updateGps, 5000);
+
+/* ---------- Rendering ---------- */
+
+function chipsHtml(active, action) {
+  return CLUBS.map(c =>
+    `<button class="chip${c === active ? ' on' : ''}" data-action="${action}" data-club="${c}">${c}</button>`
+  ).join('');
+}
+
+function renderList() {
+  const rounds = [...db.rounds].sort((a, b) => b.createdAt - a.createdAt);
+  const items = rounds.map(r => {
+    const { total, played } = roundTotals(r);
+    const when = (r.name ? dateFmt.format(r.createdAt) + ' ' : '') + timeFmt.format(r.createdAt);
+    return `
+      <li class="round-item">
+        <button class="round-open" data-action="open-round" data-id="${esc(r.id)}">
+          <span class="rn">${esc(roundLabel(r))}</span>
+          <span class="rm">${esc(when)}, ${played} av ${r.holeCount} hål</span>
+          <span class="rt"><b>${total}</b>slag</span>
+        </button>
+        <button class="round-del" data-action="delete-round" data-id="${esc(r.id)}" aria-label="Ta bort rond">✕</button>
+      </li>`;
+  }).join('');
+
+  return `
+    <div class="screen">
+      <header class="top"><h1>Slagräknare</h1></header>
+      <main class="scroll">
+        ${rounds.length
+          ? `<ul class="rounds">${items}</ul>`
+          : `<p class="empty">Inga ronder än. Starta en ny när du står på första tee.</p>`}
+      </main>
+      <footer class="dock">
+        <button class="primary" data-action="new-round">Ny rond</button>
+        <button class="link" data-action="export">Kopiera all data som JSON</button>
+      </footer>
+    </div>`;
+}
+
+function renderRound() {
+  const round = getRound();
+  const hole = round.currentHole;
+  const list = holeList(round, hole);
+  const { total } = roundTotals(round);
+  const last = list.length - 1;
+
+  const rows = list.map((s, i) => {
+    const d = shotDistance(list, i);
+    let right;
+    if (s.club === 'Putter') {
+      right = '<span class="dist muted">–</span>';
+    } else if (d) {
+      right = `<span class="dist">${fmtDist(d)}</span>`;
+    } else if (i === last && hasPos(s)) {
+      right = '<button class="measure" data-action="measure">Mät hit</button>';
+    } else {
+      right = '<span class="dist muted">–</span>';
+    }
+    return `
+      <li>
+        <button class="stroke" data-action="edit-stroke" data-index="${i}">
+          <span class="n">${i + 1}</span>
+          <span class="club">${esc(s.club)}</span>
+          ${hasPos(s) ? '' : '<span class="nopos">ingen position</span>'}
+        </button>
+        ${right}
+      </li>`;
+  }).join('');
+
+  return `
+    <div class="screen">
+      <header class="top">
+        <button class="ghost" data-action="back">‹ Ronder</button>
+        <div class="gps wait" id="gps">Söker GPS…</div>
+        <button class="ghost" data-action="scorecard">Scorekort</button>
+      </header>
+      <div class="holebar">
+        <button class="step" data-action="prev-hole" ${hole <= 1 ? 'disabled' : ''} aria-label="Föregående hål">‹</button>
+        <div class="holetitle">Hål ${hole}<small>av ${round.holeCount}</small></div>
+        <button class="step" data-action="next-hole" ${hole >= round.holeCount ? 'disabled' : ''} aria-label="Nästa hål">›</button>
+      </div>
+      <section class="counter" aria-live="polite">
+        <div class="big">${list.length}</div>
+        <div class="sub">slag på hålet, ${total} på ronden</div>
+      </section>
+      <ol class="strokes">
+        ${rows || '<li class="hint-empty">Tryck +1 slag direkt efter varje slag, medan du står kvar där du slog. Avståndet mäts till nästa slag.</li>'}
+      </ol>
+      <footer class="dock">
+        <div class="chips">${chipsHtml(db.club, 'pick-club')}</div>
+        <div class="actions">
+          <button class="undo" data-action="undo" ${list.length ? '' : 'disabled'}>Ångra</button>
+          <button class="add" data-action="add">+1 slag</button>
+        </div>
+      </footer>
+    </div>`;
+}
+
+function renderCard() {
+  const round = getRound();
+  const { total } = roundTotals(round);
+  const clubStats = {};
+  let longestAll = null;
+
+  let rows = '';
+  for (let h = 1; h <= round.holeCount; h++) {
+    const list = round.holes[h] || [];
+    let longest = null;
+    list.forEach((s, i) => {
+      const d = shotDistance(list, i);
+      if (!d) return;
+      if (!longest || d.m > longest.m) longest = d;
+      if (!longestAll || d.m > longestAll.m) longestAll = d;
+      const st = clubStats[s.club] || (clubStats[s.club] = { n: 0, sum: 0, max: 0 });
+      st.n++; st.sum += d.m; st.max = Math.max(st.max, d.m);
+    });
+    rows += `
+      <tr>
+        <td><button class="cellbtn" data-action="goto-hole" data-hole="${h}" aria-label="Gå till hål ${h}">${h}</button></td>
+        <td>${list.length || '–'}</td>
+        <td>${longest ? fmtDist(longest) : '–'}</td>
+      </tr>`;
+  }
+
+  const clubRows = CLUBS.filter(c => clubStats[c]).map(c => {
+    const st = clubStats[c];
+    return `<tr><td>${c}</td><td>${st.n}</td><td>${Math.round(st.sum / st.n)} m</td><td>${Math.round(st.max)} m</td></tr>`;
+  }).join('');
+
+  return `
+    <div class="screen">
+      <header class="top">
+        <button class="ghost" data-action="card-back">‹ Tillbaka</button>
+        <h2>Scorekort</h2>
+        <span style="width:64px"></span>
+      </header>
+      <main class="scroll">
+        <p class="card-title">${esc(roundLabel(round))}<small>${esc(dateFmt.format(round.createdAt))} ${esc(timeFmt.format(round.createdAt))}</small></p>
+        <table class="score">
+          <thead><tr><th>Hål</th><th>Slag</th><th>Längsta</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr><td>Summa</td><td>${total}</td><td>${longestAll ? fmtDist(longestAll) : '–'}</td></tr></tfoot>
+        </table>
+        ${clubRows ? `
+          <h3 class="score-h3">Klubbar</h3>
+          <table class="score">
+            <thead><tr><th>Klubba</th><th>Slag</th><th>Snitt</th><th>Längsta</th></tr></thead>
+            <tbody>${clubRows}</tbody>
+          </table>
+          <p class="note">Putter räknas inte med. ≈ betyder att GPS-noggrannheten var sämre än ca 25 m.</p>` : ''}
+      </main>
+    </div>`;
+}
+
+function renderSheet() {
+  if (sheet.type === 'new') {
+    return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Ny rond">
+        <h2>Ny rond</h2>
+        <label class="field"><span>Bana</span>
+          <input id="round-name" type="text" placeholder="Valfritt" autocomplete="off" maxlength="60">
+        </label>
+        <div class="seg" role="radiogroup" aria-label="Antal hål">
+          <label><input type="radio" name="holes" value="18" checked><span>18 hål</span></label>
+          <label><input type="radio" name="holes" value="9"><span>9 hål</span></label>
+        </div>
+        <button class="primary" data-action="create-round">Starta rond</button>
+        <button class="link" data-action="close-sheet">Avbryt</button>
+      </div>`;
+  }
+  const round = getRound();
+  const list = round ? holeList(round, round.currentHole) : [];
+  const stroke = list[sheet.index];
+  if (!stroke) return '';
+  return `
+    <div class="backdrop" data-action="close-sheet"></div>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Ändra slag">
+      <h2>Slag ${sheet.index + 1} på hål ${round.currentHole}</h2>
+      <p class="hint">Välj klubba</p>
+      <div class="chips">${chipsHtml(stroke.club, 'set-club')}</div>
+      <button class="danger" data-action="delete-stroke">Ta bort slaget</button>
+      <button class="link" data-action="close-sheet">Avbryt</button>
+    </div>`;
+}
+
+function render() {
+  let html;
+  if (view === 'round' && getRound()) html = renderRound();
+  else if (view === 'card' && getRound()) html = renderCard();
+  else { view = 'list'; html = renderList(); }
+  app.innerHTML = html + (sheet ? renderSheet() : '');
+  if (view === 'round') {
+    updateGps();
+    const strokes = app.querySelector('.strokes');
+    if (strokes) strokes.scrollTop = strokes.scrollHeight;
+  }
+}
+
+function popCounter() {
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const el = app.querySelector('.big');
+  if (el && el.animate) el.animate([{ transform: 'scale(1.14)' }, { transform: 'scale(1)' }], { duration: 180, easing: 'ease-out' });
+}
+
+/* ---------- Handlingar ---------- */
+
+function openRound(id) {
+  roundId = id;
+  view = 'round';
+  sheet = null;
+  db.activeRoundId = id;
+  saveDb();
+  startGps();
+  requestWake();
+  render();
+}
+
+function closeRound() {
+  view = 'list';
+  roundId = null;
+  sheet = null;
+  db.activeRoundId = null;
+  saveDb();
+  stopGps();
+  releaseWake();
+  render();
+}
+
+function createRound() {
+  const nameInput = document.getElementById('round-name');
+  const holesInput = document.querySelector('input[name="holes"]:checked');
+  const round = {
+    id: Date.now().toString(36),
+    name: nameInput ? nameInput.value.trim() : '',
+    createdAt: Date.now(),
+    holeCount: holesInput ? Number(holesInput.value) || 18 : 18,
+    currentHole: 1,
+    holes: {}
+  };
+  db.rounds.push(round);
+  openRound(round.id);
+}
+
+function addStroke() {
+  const round = getRound();
+  const list = holeList(round, round.currentHole);
+  const fix = freshFix();
+  const stroke = { t: Date.now(), club: db.club };
+  if (fix) { stroke.lat = fix.lat; stroke.lng = fix.lng; stroke.acc = fix.acc; }
+  list.push(stroke);
+  saveDb();
+  render();
+  popCounter();
+
+  if (!fix && 'geolocation' in navigator) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      stroke.lat = pos.coords.latitude;
+      stroke.lng = pos.coords.longitude;
+      stroke.acc = pos.coords.accuracy;
+      saveDb();
+      if (view === 'round' && !sheet) render();
+    }, () => { /* slaget finns kvar, men utan position */ }, {
+      enableHighAccuracy: true, maximumAge: 0, timeout: 10000
+    });
+  }
+}
+
+function measureLanding() {
+  const round = getRound();
+  const list = holeList(round, round.currentHole);
+  const stroke = list[list.length - 1];
+  if (!stroke || !hasPos(stroke)) return;
+  const fix = freshFix();
+  if (!fix) { toast('Ingen GPS-position än'); return; }
+  stroke.landing = { lat: fix.lat, lng: fix.lng, acc: fix.acc };
+  saveDb();
+  render();
+}
+
+function undoStroke() {
+  const round = getRound();
+  const list = holeList(round, round.currentHole);
+  if (!list.length) return;
+  list.pop();
+  saveDb();
+  render();
+}
+
+function changeHole(delta) {
+  const round = getRound();
+  round.currentHole = Math.max(1, Math.min(round.holeCount, round.currentHole + delta));
+  saveDb();
+  render();
+}
+
+async function exportData() {
+  const text = JSON.stringify({ exportedAt: new Date().toISOString(), rounds: db.rounds }, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Kopierat till urklipp');
+  } catch (err) {
+    const area = document.createElement('textarea');
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+    area.remove();
+    toast(ok ? 'Kopierat till urklipp' : 'Kunde inte kopiera');
+  }
+}
+
+app.addEventListener('click', event => {
+  const el = event.target.closest('[data-action]');
+  if (!el || el.disabled) return;
+  const action = el.dataset.action;
+  const round = getRound();
+
+  switch (action) {
+    case 'new-round': sheet = { type: 'new' }; render(); break;
+    case 'create-round': createRound(); break;
+    case 'open-round': openRound(el.dataset.id); break;
+    case 'delete-round':
+      if (confirm('Ta bort ronden? Det går inte att ångra.')) {
+        db.rounds = db.rounds.filter(r => r.id !== el.dataset.id);
+        saveDb();
+        render();
+      }
+      break;
+    case 'export': exportData(); break;
+    case 'back': closeRound(); break;
+    case 'scorecard': view = 'card'; render(); break;
+    case 'card-back': view = 'round'; render(); break;
+    case 'goto-hole':
+      round.currentHole = Number(el.dataset.hole);
+      view = 'round';
+      saveDb();
+      render();
+      break;
+    case 'prev-hole': changeHole(-1); break;
+    case 'next-hole': changeHole(1); break;
+    case 'add': addStroke(); break;
+    case 'undo': undoStroke(); break;
+    case 'measure': measureLanding(); break;
+    case 'pick-club':
+      db.club = el.dataset.club;
+      saveDb();
+      app.querySelectorAll('.dock .chip').forEach(chip => {
+        chip.classList.toggle('on', chip.dataset.club === db.club);
+      });
+      break;
+    case 'edit-stroke': sheet = { type: 'stroke', index: Number(el.dataset.index) }; render(); break;
+    case 'set-club': {
+      const list = holeList(round, round.currentHole);
+      if (list[sheet.index]) list[sheet.index].club = el.dataset.club;
+      sheet = null;
+      saveDb();
+      render();
+      break;
+    }
+    case 'delete-stroke': {
+      const list = holeList(round, round.currentHole);
+      list.splice(sheet.index, 1);
+      sheet = null;
+      saveDb();
+      render();
+      break;
+    }
+    case 'close-sheet': sheet = null; render(); break;
+  }
+});
+
+/* ---------- Ikon (för "Lägg till på hemskärmen") ---------- */
+
+(function makeIcon() {
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 180;
+    const x = c.getContext('2d');
+    x.fillStyle = '#1E5233';
+    x.fillRect(0, 0, 180, 180);
+    x.fillStyle = '#EDF0E6';
+    x.fillRect(84, 34, 7, 104);
+    x.beginPath(); x.ellipse(88, 142, 36, 9, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#C4372D';
+    x.beginPath(); x.moveTo(91, 34); x.lineTo(142, 55); x.lineTo(91, 76); x.closePath(); x.fill();
+    const url = c.toDataURL('image/png');
+    const touch = document.createElement('link');
+    touch.rel = 'apple-touch-icon'; touch.href = url;
+    const fav = document.createElement('link');
+    fav.rel = 'icon'; fav.href = url;
+    document.head.append(touch, fav);
+  } catch (err) { /* ikonen är valfri */ }
+})();
+
+/* ---------- Start ---------- */
+
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+if (db.activeRoundId && db.rounds.some(r => r.id === db.activeRoundId)) {
+  openRound(db.activeRoundId);
+} else {
+  render();
+}
+</script>
+</body>
+</html>
