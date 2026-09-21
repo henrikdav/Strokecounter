@@ -276,7 +276,7 @@ let view = 'list';       // 'list' | 'round' | 'card' | 'courses' | 'course-edit
 let roundId = null;
 let sheet = null;        // null | { type: 'new' | 'bag' | 'import' } | { type: 'stroke', index }
 let draft = null;        // course being created or edited: { id, name, count, all: [{ par, length, index }] x18 }
-let cardMode = 'gross';  // scorecard view: 'gross' | 'net'
+let cardMode = 'gross';  // scorecard view: 'gross' | 'stableford'
 let lastFix = null;
 let gpsErrorCode = null;
 let watchId = null;
@@ -743,7 +743,7 @@ function renderCard() {
   const round = getRound();
   const hasInfo = !!round.holeData && Object.keys(round.holeData).length > 0;
   const hasExtras = strokesReceived(round, round.startHole || 1) !== null;
-  const net = cardMode === 'net' && hasExtras;
+  const stableford = cardMode === 'stableford' && hasExtras;
   const clubStats = {};
   let longestAll = null;
   let parSum = 0;
@@ -751,6 +751,7 @@ function renderCard() {
   let extraSum = 0;
   let shownTotal = 0;
   let diffTotal = null;
+  let pointsTotal = 0;
 
   let rows = '';
   for (const h of holeNumbers(round)) {
@@ -758,8 +759,10 @@ function renderCard() {
     const info = holeInfo(round, h);
     const extra = hasExtras ? strokesReceived(round, h) : null;
     const played = list.length > 0;
-    const shown = played ? list.length - (net ? extra : 0) : null;
+    const shown = played ? list.length : null;
     const diff = info && played ? shown - info.par : null;
+    // Stableford: 2 points for net par, +1 per stroke better, -1 per stroke worse, never below 0.
+    const points = stableford && info && played ? Math.max(0, 2 + info.par - (shown - extra)) : null;
     let longest = null;
     list.forEach((s, i) => {
       const d = shotDistance(list, i);
@@ -773,13 +776,16 @@ function renderCard() {
     if (extra) extraSum += extra;
     if (played) shownTotal += shown;
     if (diff !== null) diffTotal = (diffTotal || 0) + diff;
+    if (points !== null) pointsTotal += points;
     rows += `
       <tr>
         <td><button class="cellbtn" data-action="goto-hole" data-hole="${h}" aria-label="Go to hole ${h}">${h}</button></td>
         ${hasInfo ? `<td>${info ? info.par : '–'}</td><td>${info && info.length ? info.length : '–'}</td>` : ''}
         ${hasExtras ? `<td>${extra || '–'}</td>` : ''}
         <td>${shown === null ? '–' : shown}</td>
-        ${hasInfo ? `<td class="${toParClass(diff)}">${fmtToPar(diff)}</td>` : ''}
+        ${hasInfo ? (stableford
+          ? `<td>${points === null ? '–' : points}</td>`
+          : `<td class="${toParClass(diff)}">${fmtToPar(diff)}</td>`) : ''}
         <td>${longest ? fmtDist(longest) : '–'}</td>
       </tr>`;
   }
@@ -799,8 +805,8 @@ function renderCard() {
   }
   const modeBar = hasExtras ? `
         <div class="modebar" role="group" aria-label="Score type">
-          <button class="modebtn${net ? '' : ' on'}" data-action="card-mode" data-mode="gross">Gross</button>
-          <button class="modebtn${net ? ' on' : ''}" data-action="card-mode" data-mode="net">Net</button>
+          <button class="modebtn${stableford ? '' : ' on'}" data-action="card-mode" data-mode="gross">Gross</button>
+          <button class="modebtn${stableford ? ' on' : ''}" data-action="card-mode" data-mode="stableford">Stableford</button>
         </div>` : '';
   const noIndexNote = round.handicap && hasInfo && !hasExtras
     ? '<p class="note">Extra strokes need a hole index on every hole played. Add it under My courses; it applies to new rounds.</p>'
@@ -822,8 +828,8 @@ function renderCard() {
             <th>Hole</th>
             ${hasInfo ? '<th>Par</th><th>Meters</th>' : ''}
             ${hasExtras ? '<th>Extra</th>' : ''}
-            <th>${net ? 'Net' : 'Strokes'}</th>
-            ${hasInfo ? '<th>+/−</th>' : ''}
+            <th>Strokes</th>
+            ${hasInfo ? `<th>${stableford ? 'Points' : '+/−'}</th>` : ''}
             <th>Longest</th>
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -832,12 +838,14 @@ function renderCard() {
             ${hasInfo ? `<td>${parSum}</td><td>${metersSum || '–'}</td>` : ''}
             ${hasExtras ? `<td>${extraSum || '–'}</td>` : ''}
             <td>${shownTotal}</td>
-            ${hasInfo ? `<td class="${toParClass(diffTotal)}">${fmtToPar(diffTotal)}</td>` : ''}
+            ${hasInfo ? (stableford
+              ? `<td>${pointsTotal}</td>`
+              : `<td class="${toParClass(diffTotal)}">${fmtToPar(diffTotal)}</td>`) : ''}
             <td>${longestAll ? fmtDist(longestAll) : '–'}</td>
           </tr></tfoot>
         </table>
         ${noIndexNote}
-        ${hasInfo ? `<p class="note">Par, length and index were copied from the course when the round started. +/− is ${net ? 'net strokes' : 'strokes'} minus par on holes you have played. E means even par.${hasExtras ? ' Extra is the handicap strokes you get on each hole.' : ''}</p>` : ''}
+        ${hasInfo ? `<p class="note">Par, length and index were copied from the course when the round started. ${stableford ? 'Points are Stableford, counted with your extra strokes: 2 for net par, 3 for net birdie, 1 for net bogey, 0 for net double bogey or worse.' : '+/− is strokes minus par on holes you have played. E means even par.'}${hasExtras ? ' Extra is the handicap strokes you get on each hole.' : ''}</p>` : ''}
         ${clubRows ? `
           <h3 class="score-h3">Clubs</h3>
           <table class="score">
@@ -1375,7 +1383,7 @@ app.addEventListener('click', event => {
     case 'back': closeRound(); break;
     case 'scorecard': view = 'card'; render(); break;
     case 'card-back': view = 'round'; render(); break;
-    case 'card-mode': cardMode = el.dataset.mode === 'net' ? 'net' : 'gross'; render(); break;
+    case 'card-mode': cardMode = el.dataset.mode === 'stableford' ? 'stableford' : 'gross'; render(); break;
     case 'edit-handicap': sheet = { type: 'handicap' }; render(); break;
     case 'save-handicap': saveHandicap(); break;
     case 'remove-handicap':
