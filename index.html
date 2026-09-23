@@ -181,9 +181,6 @@
   .row2 .field { flex: 1; min-width: 0; }
   .row2 .field + .field { margin-top: 0; }
   .extra { border: 2px solid var(--fairway); border-radius: 999px; padding: 0 10px; font-size: 15px; color: var(--fairway-deep); }
-  .modebar { display: flex; gap: 8px; margin: 4px 0 8px; }
-  .modebtn { flex: 1; min-height: 42px; border-radius: 10px; border: 2px solid var(--line); background: var(--paper); font-weight: 700; }
-  .modebtn.on { background: var(--sand); border-color: var(--ink); }
   .pills { display: flex; align-items: center; margin: 0 14px 6px; padding: 3px; border-radius: 999px; background: var(--paper); border: 2px solid var(--line); }
   .pill { flex: 1; min-height: 38px; margin: 0; padding: 0 10px; border: 0; border-radius: 999px; background: none; font-weight: 700; color: var(--mute); }
   .pill.on { background: var(--sand); color: var(--ink); box-shadow: 0 0 3px rgba(23, 36, 27, .18); }
@@ -193,15 +190,16 @@
 
   /* Scorecard */
   .score { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  .score th { text-align: right; font-size: 13px; color: var(--mute); font-weight: 600; padding: 8px 3px; }
+  .score th { text-align: right; font-size: 13px; color: var(--mute); font-weight: 600; padding: 8px 2px; }
   .score th:first-child, .score td:first-child { text-align: left; }
-  .score td { text-align: right; padding: 6px 3px; border-bottom: 1px solid var(--line); font-size: 16px; font-weight: 600; }
+  .score td { text-align: right; padding: 6px 2px; border-bottom: 1px solid var(--line); font-size: 16px; font-weight: 600; }
   .score tfoot td { font-weight: 800; border-bottom: 0; border-top: 2px solid var(--ink); font-size: 17px; }
   .score .strokes-cell { font-weight: 800; }
-  .score .grp { width: 1%; white-space: nowrap; padding-left: 10px; padding-right: 3px; }
-  .score .grp:first-child { padding-left: 3px; }
-  .score .grp-end { border-right: 2px solid var(--line); padding-right: 10px; }
+  .score .grp { width: 1%; white-space: nowrap; padding-left: 6px; padding-right: 2px; }
+  .score .grp:first-child { padding-left: 2px; }
+  .score .grp-end { border-right: 2px solid var(--line); padding-right: 6px; }
   .score tr.subtotal td { font-weight: 800; background: var(--paper); border-top: 1px solid var(--ink); }
+  .score tr.nine-gap td { height: 18px; padding: 0; border-bottom: 0; }
   .cellbtn { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--sand); font-weight: 800; font-size: 15px; }
   .card-title { margin: 6px 0 10px; font-size: 20px; font-weight: 800; }
   .card-title small { display: block; font-size: 14px; color: var(--mute); font-weight: 600; }
@@ -297,7 +295,6 @@ let view = 'list';       // 'list' | 'round' | 'card' | 'courses' | 'course-edit
 let roundId = null;
 let sheet = null;        // null | { type: 'new' | 'bag' | 'import' } | { type: 'stroke', index }
 let draft = null;        // course being created or edited: { id, name, count, all: [{ par, length, index }] x18 }
-let cardMode = 'gross';  // scorecard view: 'gross' | 'stableford'
 let cardTab = 'score';   // scorecard tab: 'score' | 'clubs'
 let cardScroll = { score: 0, clubs: 0 };  // scroll position per tab, kept while switching
 let lastFix = null;
@@ -772,7 +769,6 @@ function renderCard() {
   const round = getRound();
   const hasInfo = !!round.holeData && Object.keys(round.holeData).length > 0;
   const hasExtras = strokesReceived(round, round.startHole || 1) !== null;
-  const stableford = cardMode === 'stableford' && hasExtras;
   const clubStats = {};
   let longestAll = null;
   let penaltyCount = 0;
@@ -787,7 +783,9 @@ function renderCard() {
     const shown = played ? list.length : null;
     const diff = info && played ? shown - info.par : null;
     // Stableford: 2 points for net par, +1 per stroke better, -1 per stroke worse, never below 0.
-    const points = stableford && info && played ? Math.max(0, 2 + info.par - (shown - extra)) : null;
+    const points = hasExtras && info && played ? Math.max(0, 2 + info.par - (shown - extra)) : null;
+    // Net: strokes minus handicap strokes, compared with par.
+    const net = hasExtras && info && played ? shown - extra - info.par : null;
     let longest = null;
     list.forEach((s, i) => {
       if (s.club === PENALTY) penaltyCount++;
@@ -799,19 +797,27 @@ function renderCard() {
       const st = clubStats[key] || (clubStats[key] = { n: 0, sum: 0, max: 0 });
       st.n++; st.sum += d.m; st.max = Math.max(st.max, d.m);
     });
-    return { h, info, extra, played, shown, diff, points, longest };
+    return { h, info, extra, played, shown, diff, net, points, longest };
   });
 
   function sumRows(list) {
-    let par = 0, extra = 0, strokes = 0, diff = null, points = 0, any = false;
+    let par = 0, extra = 0, strokes = 0, diff = null, net = null, points = null, any = false;
     list.forEach(r => {
       if (r.info) par += r.info.par;
       if (r.extra) extra += r.extra;
       if (r.played) { strokes += r.shown; any = true; }
       if (r.diff !== null) diff = (diff || 0) + r.diff;
-      if (r.points !== null) points += r.points;
+      if (r.net !== null) net = (net || 0) + r.net;
+      if (r.points !== null) points = (points || 0) + r.points;
     });
-    return { par, extra, strokes: any ? strokes : null, diff, points };
+    return { par, extra, strokes: any ? strokes : null, diff, net, points };
+  }
+
+  // Gross and Net are strokes over or under par, before and after handicap strokes; Points is Stableford.
+  function resultCells(r) {
+    return `<td class="${toParClass(r.diff)}">${fmtToPar(r.diff)}</td>
+        <td class="${toParClass(r.net)}">${fmtToPar(r.net)}</td>
+        <td>${r.points === null ? '–' : r.points}</td>`;
   }
 
   function holeRow(r) {
@@ -821,9 +827,7 @@ function renderCard() {
         ${hasInfo ? `<td class="grp">${r.info ? r.info.par : '–'}</td><td class="grp grp-end">${r.info && Number.isInteger(r.info.index) ? r.info.index : '–'}</td>` : ''}
         ${hasExtras ? `<td>${r.extra || '–'}</td>` : ''}
         <td class="strokes-cell">${r.shown === null ? '–' : r.shown}</td>
-        ${hasInfo ? (stableford
-          ? `<td>${r.points === null ? '–' : r.points}</td>`
-          : `<td class="${toParClass(r.diff)}">${fmtToPar(r.diff)}</td>`) : ''}
+        ${hasInfo ? resultCells(r) : ''}
       </tr>`;
   }
 
@@ -834,16 +838,26 @@ function renderCard() {
         ${hasInfo ? `<td class="grp">${sub.par}</td><td class="grp grp-end">–</td>` : ''}
         ${hasExtras ? `<td>${sub.extra || '–'}</td>` : ''}
         <td class="strokes-cell">${sub.strokes === null ? '–' : sub.strokes}</td>
-        ${hasInfo ? (stableford ? `<td>${sub.points}</td>` : `<td class="${toParClass(sub.diff)}">${fmtToPar(sub.diff)}</td>`) : ''}
+        ${hasInfo ? resultCells(sub) : ''}
       </tr>`;
   }
 
+  const headCells = `
+            <th class="grp">Hole</th>
+            ${hasInfo ? '<th class="grp">Par</th><th class="grp grp-end">Index</th>' : ''}
+            ${hasExtras ? '<th>Extra</th>' : ''}
+            <th>Strokes</th>
+            ${hasInfo ? '<th>Gross</th><th>Net</th><th>Points</th>' : ''}`;
+  const columnCount = 2 + (hasInfo ? 5 : 0) + (hasExtras ? 1 : 0);
+
   // A full 18-hole round gets a real scorecard shape: front nine, OUT, back nine, IN, then Total.
+  // The back nine repeats the column headings after a small gap, like a paper scorecard.
   let rows = '';
   if (round.holeCount === 18) {
     const front = perHole.slice(0, 9);
     const back = perHole.slice(9, 18);
     rows += front.map(holeRow).join('') + subtotalRow('OUT', sumRows(front));
+    rows += `<tr class="nine-gap"><td colspan="${columnCount}"></td></tr><tr class="nine-head">${headCells}</tr>`;
     rows += back.map(holeRow).join('') + subtotalRow('IN', sumRows(back));
   } else {
     rows += perHole.map(holeRow).join('');
@@ -873,11 +887,6 @@ function renderCard() {
       : 'Add playing handicap';
     hcpLine = `<p class="hcp-line"><button class="inline-btn" data-action="edit-handicap">${label}</button></p>`;
   }
-  const modeBar = hasExtras ? `
-        <div class="modebar" role="group" aria-label="Score type">
-          <button class="modebtn${stableford ? '' : ' on'}" data-action="card-mode" data-mode="gross">Gross</button>
-          <button class="modebtn${stableford ? ' on' : ''}" data-action="card-mode" data-mode="stableford">Stableford</button>
-        </div>` : '';
   const noIndexNote = round.handicap && hasInfo && !hasExtras
     ? '<p class="note">Extra strokes need a hole index on every hole played. Add it under My courses; it applies to new rounds.</p>'
     : '';
@@ -916,28 +925,19 @@ function renderCard() {
         ${cardTab === 'clubs' ? clubsTab : `
         ${hcpLine}
         ${penaltyCount ? `<p class="note" style="margin:0 0 10px">Penalty strokes: ${penaltyCount}</p>` : ''}
-        ${modeBar}
         <table class="score">
-          <thead><tr>
-            <th class="grp">Hole</th>
-            ${hasInfo ? '<th class="grp">Par</th><th class="grp grp-end">Index</th>' : ''}
-            ${hasExtras ? '<th>Extra</th>' : ''}
-            <th>Strokes</th>
-            ${hasInfo ? `<th>${stableford ? 'Points' : '+/−'}</th>` : ''}
-          </tr></thead>
+          <thead><tr>${headCells}</tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr>
             <td class="grp">Total</td>
             ${hasInfo ? `<td class="grp">${totals.par}</td><td class="grp grp-end">–</td>` : ''}
             ${hasExtras ? `<td>${totals.extra || '–'}</td>` : ''}
             <td class="strokes-cell">${totals.strokes === null ? '–' : totals.strokes}</td>
-            ${hasInfo ? (stableford
-              ? `<td>${totals.points}</td>`
-              : `<td class="${toParClass(totals.diff)}">${fmtToPar(totals.diff)}</td>`) : ''}
+            ${hasInfo ? resultCells(totals) : ''}
           </tr></tfoot>
         </table>
         ${noIndexNote}
-        ${hasInfo ? `<p class="note">Par and index were copied from the course when the round started. ${stableford ? 'Points are Stableford, counted with your extra strokes: 2 for net par, 3 for net birdie, 1 for net bogey, 0 for net double bogey or worse.' : '+/− is strokes minus par on holes you have played. E means even par.'}${hasExtras ? ' Extra is the handicap strokes you get on each hole.' : ''}</p>` : ''}`}
+        ${hasInfo ? `<p class="note">Par and index were copied from the course when the round started. Gross is strokes minus par on holes you have played, and Net is the same after your extra strokes. E means even par. ${hasExtras ? 'Extra is the handicap strokes you get on each hole. Points are Stableford: 2 for net par, 3 for net birdie, 1 for net bogey, 0 for net double bogey or worse.' : 'Net and Points need a playing handicap and a hole index on every hole.'}</p>` : ''}`}
       </main>
     </div>`;
 }
@@ -1296,7 +1296,6 @@ function importCourses(text) {
 
 function openRound(id) {
   roundId = id;
-  cardMode = 'gross';
   view = 'round';
   sheet = null;
   db.activeRoundId = id;
@@ -1501,7 +1500,6 @@ app.addEventListener('click', event => {
       break;
     }
     case 'card-back': view = 'round'; render(); break;
-    case 'card-mode': cardMode = el.dataset.mode === 'stableford' ? 'stableford' : 'gross'; render(); break;
     case 'edit-handicap': sheet = { type: 'handicap' }; render(); break;
     case 'save-handicap': saveHandicap(); break;
     case 'remove-handicap':
