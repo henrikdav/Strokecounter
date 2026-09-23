@@ -210,7 +210,9 @@
   .shot > span { white-space: nowrap; }
   .score tr.shot-row td.shot-n { text-align: right; font-variant-numeric: tabular-nums; }
   .shot .shot-dist { margin-left: auto; font-variant-numeric: tabular-nums; }
-  .score tr.shot-row td.shot-m { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Clubs table: number columns shrink to their content so sub-rows line up under the Shots heading. */
+  .score.clubs th:not(:first-child), .score.clubs tr.expandable td:not(:first-child) { width: 1%; white-space: nowrap; padding-left: 16px; }
+  .shot.flush { padding-left: 14px; }
   .longest-line { margin: 4px 0 12px; font-size: 16px; font-weight: 600; }
   .longest-line strong { font-weight: 800; }
   .longest-line span { color: var(--mute); font-size: 14px; }
@@ -921,8 +923,8 @@ function renderCard() {
       if (open) {
         clubRows += st.shots.map((shot, i) => `
         <tr class="shot-row${i === st.shots.length - 1 ? ' last' : ''}">
-          <td>Hole ${shot.h}, shot ${shot.n}</td>
-          <td colspan="3" class="shot-m">${shot.d ? fmtDist(shot.d) : '–'}</td>
+          <td></td>
+          <td colspan="3"><div class="shot flush"><span>Hole ${shot.h}, shot ${shot.n}</span><span class="shot-dist">${shot.d ? fmtDist(shot.d) : '–'}</span></div></td>
         </tr>`).join('');
       }
     });
@@ -952,7 +954,7 @@ function renderCard() {
         ${longestAll
           ? `<p class="longest-line">Longest shot: <strong>${fmtDist(longestAll.d)}</strong> <span>${esc(longestAll.key)}, hole ${longestAll.h}</span></p>`
           : '<p class="note" style="margin:0 0 10px">No shot distances for this round yet. A distance is measured when a stroke and the next one, or its landing spot, both have a GPS position.</p>'}
-        <table class="score">
+        <table class="score clubs">
           <thead><tr><th>Club</th><th>Shots</th><th>Avg</th><th>Longest</th></tr></thead>
           <tbody>${clubRows}</tbody>
         </table>
