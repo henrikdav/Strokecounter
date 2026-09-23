@@ -40,7 +40,7 @@
   input, textarea, select { -webkit-user-select: text; user-select: text; }
   button { font: inherit; color: inherit; touch-action: manipulation; cursor: pointer; }
   button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--fairway); outline-offset: 2px; }
-  #app { height: 100%; }
+  #app { height: 100%; max-width: 480px; margin: 0 auto; }
 
   .screen { height: 100%; display: flex; flex-direction: column; padding-top: var(--safe-t); }
   .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 14px; min-height: 52px; }
@@ -136,7 +136,7 @@
 
   /* Bottom sheet */
   .backdrop { position: fixed; inset: 0; background: rgba(23, 36, 27, .45); z-index: 10; }
-  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; background: var(--white);
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; max-width: 480px; margin: 0 auto; background: var(--white);
            border-radius: 22px 22px 0 0; padding: 18px 16px calc(14px + var(--safe-b)); max-height: 88%; overflow-y: auto;
            animation: rise .18s ease-out; }
   .sheet h2 { margin: 0 0 12px; font-size: 22px; font-weight: 800; }
@@ -195,6 +195,11 @@
   .score th:first-child, .score td:first-child { text-align: left; }
   .score td { text-align: right; padding: 6px 3px; border-bottom: 1px solid var(--line); font-size: 16px; font-weight: 600; }
   .score tfoot td { font-weight: 800; border-bottom: 0; border-top: 2px solid var(--ink); font-size: 17px; }
+  .score .strokes-cell { font-weight: 800; }
+  .score .grp { width: 1%; white-space: nowrap; padding-left: 10px; padding-right: 3px; }
+  .score .grp:first-child { padding-left: 3px; }
+  .score .grp-end { border-right: 2px solid var(--line); padding-right: 10px; }
+  .score tr.subtotal td { font-weight: 800; background: var(--paper); border-top: 1px solid var(--ink); }
   .cellbtn { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--sand); font-weight: 800; font-size: 15px; }
   .card-title { margin: 6px 0 10px; font-size: 20px; font-weight: 800; }
   .card-title small { display: block; font-size: 14px; color: var(--mute); font-weight: 600; }
@@ -765,16 +770,11 @@ function renderCard() {
   const stableford = cardMode === 'stableford' && hasExtras;
   const clubStats = {};
   let longestAll = null;
-  let parSum = 0;
-  let metersSum = 0;
-  let extraSum = 0;
-  let shownTotal = 0;
-  let diffTotal = null;
-  let pointsTotal = 0;
   let penaltyCount = 0;
 
-  let rows = '';
-  for (const h of holeNumbers(round)) {
+  // Compute each hole's numbers first, so OUT/IN subtotal rows can be inserted
+  // between the front and back nine without a second pass over the strokes.
+  const perHole = holeNumbers(round).map(h => {
     const list = round.holes[h] || [];
     const info = holeInfo(round, h);
     const extra = hasExtras ? strokesReceived(round, h) : null;
@@ -794,23 +794,58 @@ function renderCard() {
       const st = clubStats[key] || (clubStats[key] = { n: 0, sum: 0, max: 0 });
       st.n++; st.sum += d.m; st.max = Math.max(st.max, d.m);
     });
-    if (info) { parSum += info.par; metersSum += info.length || 0; }
-    if (extra) extraSum += extra;
-    if (played) shownTotal += shown;
-    if (diff !== null) diffTotal = (diffTotal || 0) + diff;
-    if (points !== null) pointsTotal += points;
-    rows += `
+    return { h, info, extra, played, shown, diff, points, longest };
+  });
+
+  function sumRows(list) {
+    let par = 0, extra = 0, strokes = 0, diff = null, points = 0, any = false;
+    list.forEach(r => {
+      if (r.info) par += r.info.par;
+      if (r.extra) extra += r.extra;
+      if (r.played) { strokes += r.shown; any = true; }
+      if (r.diff !== null) diff = (diff || 0) + r.diff;
+      if (r.points !== null) points += r.points;
+    });
+    return { par, extra, strokes: any ? strokes : null, diff, points };
+  }
+
+  function holeRow(r) {
+    return `
       <tr>
-        <td><button class="cellbtn" data-action="goto-hole" data-hole="${h}" aria-label="Go to hole ${h}">${h}</button></td>
-        ${hasInfo ? `<td>${info ? info.par : '–'}</td><td>${info && info.length ? info.length : '–'}</td>` : ''}
-        ${hasExtras ? `<td>${extra || '–'}</td>` : ''}
-        <td>${shown === null ? '–' : shown}</td>
+        <td class="grp"><button class="cellbtn" data-action="goto-hole" data-hole="${r.h}" aria-label="Go to hole ${r.h}">${r.h}</button></td>
+        ${hasInfo ? `<td class="grp">${r.info ? r.info.par : '–'}</td><td class="grp grp-end">${r.info && Number.isInteger(r.info.index) ? r.info.index : '–'}</td>` : ''}
+        ${hasExtras ? `<td>${r.extra || '–'}</td>` : ''}
+        <td class="strokes-cell">${r.shown === null ? '–' : r.shown}</td>
         ${hasInfo ? (stableford
-          ? `<td>${points === null ? '–' : points}</td>`
-          : `<td class="${toParClass(diff)}">${fmtToPar(diff)}</td>`) : ''}
-        <td>${longest ? fmtDist(longest) : '–'}</td>
+          ? `<td>${r.points === null ? '–' : r.points}</td>`
+          : `<td class="${toParClass(r.diff)}">${fmtToPar(r.diff)}</td>`) : ''}
+        <td>${r.longest ? fmtDist(r.longest) : '–'}</td>
       </tr>`;
   }
+
+  function subtotalRow(label, sub) {
+    return `
+      <tr class="subtotal">
+        <td class="grp">${label}</td>
+        ${hasInfo ? `<td class="grp">${sub.par}</td><td class="grp grp-end">–</td>` : ''}
+        ${hasExtras ? `<td>${sub.extra || '–'}</td>` : ''}
+        <td class="strokes-cell">${sub.strokes === null ? '–' : sub.strokes}</td>
+        ${hasInfo ? (stableford ? `<td>${sub.points}</td>` : `<td class="${toParClass(sub.diff)}">${fmtToPar(sub.diff)}</td>`) : ''}
+        <td>–</td>
+      </tr>`;
+  }
+
+  // A full 18-hole round gets a real scorecard shape: front nine, OUT, back nine, IN, then Total.
+  let rows = '';
+  if (round.holeCount === 18) {
+    const front = perHole.slice(0, 9);
+    const back = perHole.slice(9, 18);
+    rows += front.map(holeRow).join('') + subtotalRow('OUT', sumRows(front));
+    rows += back.map(holeRow).join('') + subtotalRow('IN', sumRows(back));
+  } else {
+    rows += perHole.map(holeRow).join('');
+  }
+  const totals = sumRows(perHole);
 
   // Iterate in club order so a chip variant appears right after its normal club, e.g. 9i then 9i (chip).
   let clubRows = '';
@@ -853,8 +888,8 @@ function renderCard() {
         ${modeBar}
         <table class="score">
           <thead><tr>
-            <th>Hole</th>
-            ${hasInfo ? '<th>Par</th><th>Meters</th>' : ''}
+            <th class="grp">Hole</th>
+            ${hasInfo ? '<th class="grp">Par</th><th class="grp grp-end">Index</th>' : ''}
             ${hasExtras ? '<th>Extra</th>' : ''}
             <th>Strokes</th>
             ${hasInfo ? `<th>${stableford ? 'Points' : '+/−'}</th>` : ''}
@@ -862,18 +897,18 @@ function renderCard() {
           </tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr>
-            <td>Total</td>
-            ${hasInfo ? `<td>${parSum}</td><td>${metersSum || '–'}</td>` : ''}
-            ${hasExtras ? `<td>${extraSum || '–'}</td>` : ''}
-            <td>${shownTotal}</td>
+            <td class="grp">Total</td>
+            ${hasInfo ? `<td class="grp">${totals.par}</td><td class="grp grp-end">–</td>` : ''}
+            ${hasExtras ? `<td>${totals.extra || '–'}</td>` : ''}
+            <td class="strokes-cell">${totals.strokes === null ? '–' : totals.strokes}</td>
             ${hasInfo ? (stableford
-              ? `<td>${pointsTotal}</td>`
-              : `<td class="${toParClass(diffTotal)}">${fmtToPar(diffTotal)}</td>`) : ''}
+              ? `<td>${totals.points}</td>`
+              : `<td class="${toParClass(totals.diff)}">${fmtToPar(totals.diff)}</td>`) : ''}
             <td>${longestAll ? fmtDist(longestAll) : '–'}</td>
           </tr></tfoot>
         </table>
         ${noIndexNote}
-        ${hasInfo ? `<p class="note">Par, length and index were copied from the course when the round started. ${stableford ? 'Points are Stableford, counted with your extra strokes: 2 for net par, 3 for net birdie, 1 for net bogey, 0 for net double bogey or worse.' : '+/− is strokes minus par on holes you have played. E means even par.'}${hasExtras ? ' Extra is the handicap strokes you get on each hole.' : ''}</p>` : ''}
+        ${hasInfo ? `<p class="note">Par and index were copied from the course when the round started. ${stableford ? 'Points are Stableford, counted with your extra strokes: 2 for net par, 3 for net birdie, 1 for net bogey, 0 for net double bogey or worse.' : '+/− is strokes minus par on holes you have played. E means even par.'}${hasExtras ? ' Extra is the handicap strokes you get on each hole.' : ''}</p>` : ''}
         ${clubRows ? `
           <h3 class="score-h3">Clubs</h3>
           <table class="score">
