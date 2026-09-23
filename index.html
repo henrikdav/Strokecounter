@@ -677,7 +677,6 @@ function renderRound() {
   const list = holeList(round, hole);
   const totals = roundTotals(round);
   const info = holeInfo(round, hole);
-  const diff = holeToPar(round, hole);
   const extra = strokesReceived(round, hole);
   const last = list.length - 1;
 
@@ -714,8 +713,8 @@ function renderRound() {
     ? `<div class="holeinfo">
          <span>Par ${info.par}</span>
          ${info.length ? `<span>${info.length} m</span>` : ''}
+         ${Number.isInteger(info.index) ? `<span>Index ${info.index}</span>` : ''}
          ${extra ? `<span class="extra">${extra} extra</span>` : ''}
-         ${diff !== null ? `<span class="topar ${toParClass(diff)}">${fmtToPar(diff)}</span>` : ''}
        </div>`
     : '<div class="holeinfo"></div>';
   const roundPart = totals.toPar === null ? '' : `, ${fmtToPar(totals.toPar)} to par`;
@@ -723,7 +722,7 @@ function renderRound() {
   return `
     <div class="screen">
       <header class="top">
-        <button class="ghost" data-action="back">‹ Rounds</button>
+        <button class="ghost" data-action="back">‹ Home</button>
         <div class="gps wait" id="gps">Searching GPS…</div>
         <button class="ghost" data-action="scorecard">Scorecard</button>
       </header>
