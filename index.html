@@ -226,6 +226,19 @@
   .score-h3 { margin: 26px 0 4px; font-size: 18px; font-weight: 800; }
   .note { color: var(--mute); font-size: 13px; margin: 8px 0 0; }
 
+  /* Pull-to-refresh indicator: slides down from the top while pulling, spins while updating. */
+  #ptr { position: fixed; top: calc(var(--safe-t) - 44px); left: 50%; z-index: 40; display: flex; align-items: center; gap: 8px;
+         padding: 6px; border-radius: 999px; background: var(--white); box-shadow: 0 2px 8px rgba(23, 36, 27, .2);
+         transform: translate(-50%, 0); pointer-events: none; opacity: 0; font-weight: 700; font-size: 14px; color: var(--ink); }
+  #ptr.settle { transition: transform .2s ease-out, opacity .2s; }
+  #ptr .ptr-icon { width: 24px; height: 24px; display: grid; place-items: center; color: var(--mute); }
+  #ptr.ready .ptr-icon { color: var(--fairway); }
+  #ptr .ptr-label { display: none; padding-right: 6px; }
+  #ptr.updating .ptr-label { display: inline; }
+  #ptr.updating .ptr-icon svg { animation: ptr-spin .8s linear infinite; }
+  @keyframes ptr-spin { to { transform: rotate(360deg); } }
+  .update-banner { display: block; width: 100%; margin: 4px 0 12px; padding: 12px 14px; border: 2px solid var(--fairway);
+                   border-radius: 12px; background: var(--white); color: var(--fairway-deep); font-weight: 700; text-align: left; }
   #toast { position: fixed; top: calc(12px + var(--safe-t)); left: 50%; transform: translateX(-50%); z-index: 50;
            background: var(--ink); color: var(--white); padding: 10px 16px; border-radius: 999px; font-size: 15px; font-weight: 600;
            opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90%; text-align: center; }
@@ -234,6 +247,8 @@
   @media (prefers-reduced-motion: reduce) {
     .sheet { animation: none; }
     #toast { transition: none; }
+    #ptr.settle { transition: none; }
+    #ptr.updating .ptr-icon svg { animation: none; }
   }
 </style>
 </head>
@@ -323,6 +338,7 @@ let gpsErrorCode = null;
 let watchId = null;
 let wakeLock = null;
 let toastTimer = null;
+let updateAvailable = false;  // a newer version of the app was found on the server
 
 const app = document.getElementById('app');
 
@@ -603,6 +619,7 @@ function renderList() {
     <div class="screen">
       <header class="top"><h1>Stroke Counter</h1></header>
       <main class="scroll">
+        ${updateAvailable ? '<button class="update-banner" data-action="hard-reload">A new version is available. Tap to update.</button>' : ''}
         ${rounds.length
           ? `<ul class="rounds">${items}</ul>`
           : `<p class="empty">No rounds yet. Start a new one when you're on the first tee.</p>`}
@@ -1512,6 +1529,7 @@ app.addEventListener('click', event => {
 
   switch (action) {
     case 'new-round': sheet = { type: 'new' }; render(); break;
+    case 'hard-reload': hardReload(); break;
     case 'create-round': createRound(); break;
     case 'open-round': openRound(el.dataset.id); break;
     case 'delete-round':
@@ -1688,7 +1706,130 @@ app.addEventListener('input', event => {
   } catch (err) { /* the icon is optional */ }
 })();
 
+/* ---------- Pull to refresh and updates ---------- */
+
+// Reloads the app from the server, bypassing any cached copy. Saved data lives in localStorage and is not touched.
+// The fetch refreshes the browser cache for this page; the throwaway ?fresh= parameter makes sure the
+// navigation itself cannot be answered from an old cached copy. When offline, nothing is reloaded.
+let reloading = false;
+async function hardReload() {
+  if (reloading) return;
+  reloading = true;
+  showPtr('updating');
+  const base = location.pathname;
+  try {
+    const res = await fetch(base, { cache: 'reload' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+  } catch (err) {
+    reloading = false;
+    hidePtr();
+    toast('Offline. Could not update right now.');
+    return;
+  }
+  location.replace(base + '?fresh=' + Date.now() + location.hash);
+}
+
+const ptr = document.createElement('div');
+ptr.id = 'ptr';
+ptr.setAttribute('role', 'status');
+ptr.innerHTML = `<span class="ptr-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg></span><span class="ptr-label">Updating…</span>`;
+document.body.appendChild(ptr);
+
+const PTR_DEAD_ZONE = 12;   // px of finger travel before a pull can start, so taps and small drags never trigger it
+const PTR_THRESHOLD = 70;   // px of indicator travel (about 150 px of finger travel) needed to reload
+const PTR_MAX = 100;
+
+function setPtr(distance, ready) {
+  ptr.classList.remove('settle');
+  ptr.classList.toggle('ready', ready);
+  ptr.style.opacity = Math.min(1, distance / 30);
+  ptr.style.transform = `translate(-50%, ${distance}px)`;
+  ptr.querySelector('svg').style.transform = `rotate(${Math.round(distance / PTR_THRESHOLD * 270)}deg)`;
+}
+function showPtr(state) {
+  ptr.classList.add('settle', state);
+  ptr.style.opacity = 1;
+  ptr.style.transform = `translate(-50%, ${PTR_THRESHOLD - 10}px)`;
+  ptr.querySelector('svg').style.transform = '';
+}
+function hidePtr() {
+  ptr.classList.add('settle');
+  ptr.classList.remove('ready', 'updating');
+  ptr.style.opacity = 0;
+  ptr.style.transform = 'translate(-50%, 0)';
+}
+
+// A pull only starts inside a scrolling area (or the header) that is already scrolled to the very top,
+// never while a sheet is open, and only when the finger moves clearly downward rather than sideways.
+let pull = null;  // { x, y, scroller, active, decided }
+app.addEventListener('touchstart', event => {
+  if (reloading || sheet || event.touches.length !== 1) { pull = null; return; }
+  const target = event.target;
+  if (target.closest('input, select, textarea')) { pull = null; return; }
+  const area = target.closest('.scroll, .strokes, .top');
+  if (!area) { pull = null; return; }
+  const scroller = area.classList.contains('top') ? null : area;
+  if (scroller && scroller.scrollTop > 0) { pull = null; return; }
+  const t = event.touches[0];
+  pull = { x: t.clientX, y: t.clientY, scroller, active: false, decided: false };
+}, { passive: true });
+
+app.addEventListener('touchmove', event => {
+  if (!pull) return;
+  const t = event.touches[0];
+  const dx = t.clientX - pull.x;
+  const dy = t.clientY - pull.y;
+  if (!pull.decided) {
+    // A downward drag at the top can only bounce the list, so hold it back from the start: on iOS a gesture
+    // that has begun scrolling can no longer be stopped later. Upward and sideways drags are left alone.
+    if (dy > 0 && dy >= Math.abs(dx) && event.cancelable) event.preventDefault();
+    if (Math.abs(dx) < PTR_DEAD_ZONE && Math.abs(dy) < PTR_DEAD_ZONE) return;
+    pull.decided = true;
+    // Upward or sideways first movement, or a list that has scrolled meanwhile: leave the gesture to normal scrolling.
+    if (dy <= 0 || Math.abs(dx) * 1.5 > dy || (pull.scroller && pull.scroller.scrollTop > 0)) { pull = null; return; }
+    pull.active = true;
+  }
+  if (!pull.active) return;
+  event.preventDefault();  // stop the list from rubber-banding while we show the indicator
+  const distance = Math.max(0, Math.min(PTR_MAX, (dy - PTR_DEAD_ZONE) * 0.5));
+  pull.distance = distance;
+  setPtr(distance, distance >= PTR_THRESHOLD);
+}, { passive: false });
+
+function endPull() {
+  if (!pull) return;
+  const ready = pull.active && pull.distance >= PTR_THRESHOLD;
+  pull = null;
+  if (ready) hardReload(); else hidePtr();
+}
+app.addEventListener('touchend', endPull);
+app.addEventListener('touchcancel', () => { pull = null; if (!reloading) hidePtr(); });
+
+// On a normal start, quietly compare the page we are running with the one on the server.
+// If they differ, the rounds list offers an update instead of reloading in the middle of a round.
+async function checkForUpdate() {
+  if (!navigator.onLine) return;
+  try {
+    const base = location.pathname;
+    const [running, latest] = await Promise.all([
+      fetch(base, { cache: 'force-cache' }).then(r => r.ok ? r.text() : null),
+      fetch(base, { cache: 'no-store' }).then(r => r.ok ? r.text() : null)
+    ]);
+    if (running && latest && running !== latest) {
+      updateAvailable = true;
+      if (view === 'list' && !sheet) render();
+    }
+  } catch (err) { /* offline or blocked: just skip the check */ }
+}
+
 /* ---------- Start ---------- */
+
+// After a pull-to-refresh, drop the throwaway ?fresh= parameter from the address.
+if (new URLSearchParams(location.search).has('fresh')) {
+  history.replaceState(null, '', location.pathname + location.hash);
+} else {
+  setTimeout(checkForUpdate, 3000);
+}
 
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
