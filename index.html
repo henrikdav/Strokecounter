@@ -831,7 +831,8 @@ function renderCard() {
         <td>${r.points === null ? '–' : r.points}</td>`;
   }
 
-  // Shot-by-shot detail under an expanded hole, one light sub-row per shot: the hole length under Hole,
+  // Shot-by-shot detail under an expanded hole, one light sub-row per shot: the hole length across Hole, Par
+  // and Index (so it never widens the Hole column),
   // the shot number right-aligned under Strokes, and club, chip tag and distance across the result columns.
   function shotsRow(r) {
     return r.list.map((s, i) => {
@@ -840,8 +841,7 @@ function renderCard() {
       const shot = `<span>${esc(s.club)}</span>${s.chip ? '<span class="chiptag">chip</span>' : ''}${d ? `<span class="shot-dist">${fmtDist(d)}</span>` : ''}`;
       return `
       <tr class="shot-row${i === r.list.length - 1 ? ' last' : ''}">
-        <td class="grp">${holeLength}</td>
-        ${hasInfo ? '<td class="grp"></td><td class="grp grp-end"></td>' : ''}
+        ${hasInfo ? `<td colspan="3" class="grp-end">${holeLength}</td>` : `<td>${holeLength}</td>`}
         ${hasExtras ? '<td></td>' : ''}
         ${hasInfo
           ? `<td class="shot-n">${i + 1}</td><td colspan="3"><div class="shot">${shot}</div></td>`
