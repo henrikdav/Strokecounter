@@ -210,9 +210,12 @@
   .shot > span { white-space: nowrap; }
   .score tr.shot-row td.shot-n { text-align: right; font-variant-numeric: tabular-nums; }
   .shot .shot-dist { margin-left: auto; font-variant-numeric: tabular-nums; }
-  /* Clubs table: number columns shrink to their content so sub-rows line up under the Shots heading. */
-  .score.clubs th:not(:first-child), .score.clubs tr.expandable td:not(:first-child) { width: 1%; white-space: nowrap; padding-left: 16px; }
-  .shot.flush { padding-left: 14px; }
+  /* Clubs table: the three number columns share the width evenly. Shots is left-aligned so its heading,
+     its count and the expanded shot lines all start at the same edge. */
+  .score.clubs th:not(:first-child) { width: 22%; }
+  .score.clubs th, .score.clubs td { white-space: nowrap; }
+  .score.clubs th:nth-child(2), .score.clubs tr.expandable td:nth-child(2) { text-align: left; }
+  .shot.flush { padding-left: 0; }
   .longest-line { margin: 4px 0 12px; font-size: 16px; font-weight: 600; }
   .longest-line strong { font-weight: 800; }
   .longest-line span { color: var(--mute); font-size: 14px; }
