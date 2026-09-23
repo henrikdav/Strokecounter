@@ -200,6 +200,16 @@
   .score .grp-end { border-right: 2px solid var(--line); padding-right: 6px; }
   .score tr.subtotal td { font-weight: 800; background: var(--paper); border-top: 1px solid var(--ink); }
   .score tr.nine-gap td { height: 18px; padding: 0; border-bottom: 0; }
+  .score tr.expandable { cursor: pointer; }
+  .score tr.expandable:focus-visible { outline: 3px solid var(--fairway); outline-offset: -3px; }
+  .score tr.expandable.open td { border-bottom: 0; }
+  .score tr.shot-row td { vertical-align: top; padding: 1px 2px; border-bottom: 0; font-size: 14px; font-weight: 500; color: var(--mute); text-align: left; }
+  .score tr.shot-row.last td { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  /* width 0 + min-width 100% keeps the shot text from widening the table's columns; it fills whatever width they get. */
+  .shot { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; padding-left: 6px; width: 0; min-width: 100%; box-sizing: border-box; }
+  .shot > span { white-space: nowrap; }
+  .score tr.shot-row td.shot-n { text-align: right; font-variant-numeric: tabular-nums; }
+  .shot .shot-dist { margin-left: auto; font-variant-numeric: tabular-nums; }
   .cellbtn { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--sand); font-weight: 800; font-size: 15px; }
   .card-title { margin: 6px 0 10px; font-size: 20px; font-weight: 800; }
   .card-title small { display: block; font-size: 14px; color: var(--mute); font-weight: 600; }
@@ -297,6 +307,7 @@ let sheet = null;        // null | { type: 'new' | 'bag' | 'import' } | { type: 
 let draft = null;        // course being created or edited: { id, name, count, all: [{ par, length, index }] x18 }
 let cardTab = 'score';   // scorecard tab: 'score' | 'clubs'
 let cardScroll = { score: 0, clubs: 0 };  // scroll position per tab, kept while switching
+let cardOpen = new Set();  // hole numbers expanded to show their shots on the scorecard
 let lastFix = null;
 let gpsErrorCode = null;
 let watchId = null;
@@ -797,7 +808,7 @@ function renderCard() {
       const st = clubStats[key] || (clubStats[key] = { n: 0, sum: 0, max: 0 });
       st.n++; st.sum += d.m; st.max = Math.max(st.max, d.m);
     });
-    return { h, info, extra, played, shown, diff, net, points, longest };
+    return { h, list, info, extra, played, shown, diff, net, points, longest };
   });
 
   function sumRows(list) {
@@ -820,15 +831,39 @@ function renderCard() {
         <td>${r.points === null ? '–' : r.points}</td>`;
   }
 
+  // Shot-by-shot detail under an expanded hole, one light sub-row per shot: the hole length under Hole,
+  // the shot number right-aligned under Strokes, and club, chip tag and distance across the result columns.
+  function shotsRow(r) {
+    return r.list.map((s, i) => {
+      const d = shotDistance(r.list, i);
+      const holeLength = i === 0 && r.info && r.info.length ? `${r.info.length} m` : '';
+      const shot = `<span>${esc(s.club)}</span>${s.chip ? '<span class="chiptag">chip</span>' : ''}${d ? `<span class="shot-dist">${fmtDist(d)}</span>` : ''}`;
+      return `
+      <tr class="shot-row${i === r.list.length - 1 ? ' last' : ''}">
+        <td class="grp">${holeLength}</td>
+        ${hasInfo ? '<td class="grp"></td><td class="grp grp-end"></td>' : ''}
+        ${hasExtras ? '<td></td>' : ''}
+        ${hasInfo
+          ? `<td class="shot-n">${i + 1}</td><td colspan="3"><div class="shot">${shot}</div></td>`
+          : `<td><div class="shot"><span>${i + 1}</span>${shot}</div></td>`}
+      </tr>`;
+    }).join('');
+  }
+
+  // Rows with strokes expand to show their shots; the hole button still jumps to the hole.
   function holeRow(r) {
+    const open = r.played && cardOpen.has(r.h);
+    const toggle = r.played
+      ? ` class="expandable${open ? ' open' : ''}" data-action="toggle-hole" data-hole="${r.h}" tabindex="0" aria-expanded="${open}" aria-label="Hole ${r.h}, ${open ? 'hide' : 'show'} shots"`
+      : '';
     return `
-      <tr>
+      <tr${toggle}>
         <td class="grp"><button class="cellbtn" data-action="goto-hole" data-hole="${r.h}" aria-label="Go to hole ${r.h}">${r.h}</button></td>
         ${hasInfo ? `<td class="grp">${r.info ? r.info.par : '–'}</td><td class="grp grp-end">${r.info && Number.isInteger(r.info.index) ? r.info.index : '–'}</td>` : ''}
         ${hasExtras ? `<td>${r.extra || '–'}</td>` : ''}
         <td class="strokes-cell">${r.shown === null ? '–' : r.shown}</td>
         ${hasInfo ? resultCells(r) : ''}
-      </tr>`;
+      </tr>${open ? shotsRow(r) : ''}`;
   }
 
   function subtotalRow(label, sub) {
@@ -1432,6 +1467,14 @@ async function exportData() {
 /* ---------- Event handling ---------- */
 
 // One delegated click handler for the whole app.
+// Expandable scorecard rows are not buttons, so let Enter and Space toggle them from the keyboard.
+app.addEventListener('keydown', event => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  if (!event.target.matches || !event.target.matches('tr[data-action="toggle-hole"]')) return;
+  event.preventDefault();
+  event.target.click();
+});
+
 app.addEventListener('click', event => {
   const el = event.target.closest('[data-action]');
   if (!el || el.disabled) return;
@@ -1489,7 +1532,19 @@ app.addEventListener('click', event => {
     }
     case 'toggle-club': toggleClub(el.dataset.club); break;
     case 'back': closeRound(); break;
-    case 'scorecard': view = 'card'; cardTab = 'score'; cardScroll = { score: 0, clubs: 0 }; render(); break;
+    case 'scorecard': view = 'card'; cardTab = 'score'; cardScroll = { score: 0, clubs: 0 }; cardOpen = new Set(); render(); break;
+    case 'toggle-hole': {
+      const hole = Number(el.dataset.hole);
+      if (cardOpen.has(hole)) cardOpen.delete(hole); else cardOpen.add(hole);
+      const scroller = app.querySelector('.scroll');
+      const top = scroller ? scroller.scrollTop : 0;
+      render();
+      const next = app.querySelector('.scroll');
+      if (next) next.scrollTop = top;
+      const row = app.querySelector(`tr[data-action="toggle-hole"][data-hole="${hole}"]`);
+      if (row && document.activeElement === document.body) row.focus({ preventScroll: true });
+      break;
+    }
     case 'card-tab': {
       const scroller = app.querySelector('.scroll');
       if (scroller) cardScroll[cardTab] = scroller.scrollTop;
