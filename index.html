@@ -210,6 +210,10 @@
   .shot > span { white-space: nowrap; }
   .score tr.shot-row td.shot-n { text-align: right; font-variant-numeric: tabular-nums; }
   .shot .shot-dist { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .score tr.shot-row td.shot-m { text-align: right; font-variant-numeric: tabular-nums; }
+  .longest-line { margin: 4px 0 12px; font-size: 16px; font-weight: 600; }
+  .longest-line strong { font-weight: 800; }
+  .longest-line span { color: var(--mute); font-size: 14px; }
   .cellbtn { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--sand); font-weight: 800; font-size: 15px; }
   .card-title { margin: 6px 0 10px; font-size: 20px; font-weight: 800; }
   .card-title small { display: block; font-size: 14px; color: var(--mute); font-weight: 600; }
@@ -308,6 +312,7 @@ let draft = null;        // course being created or edited: { id, name, count, a
 let cardTab = 'score';   // scorecard tab: 'score' | 'clubs'
 let cardScroll = { score: 0, clubs: 0 };  // scroll position per tab, kept while switching
 let cardOpen = new Set();  // hole numbers expanded to show their shots on the scorecard
+let cardOpenClubs = new Set();  // club keys, e.g. '9i (chip)', expanded to show their shots on the Clubs tab
 let lastFix = null;
 let gpsErrorCode = null;
 let watchId = null;
@@ -797,18 +802,20 @@ function renderCard() {
     const points = hasExtras && info && played ? Math.max(0, 2 + info.par - (shown - extra)) : null;
     // Net: strokes minus handicap strokes, compared with par.
     const net = hasExtras && info && played ? shown - extra - info.par : null;
-    let longest = null;
     list.forEach((s, i) => {
       if (s.club === PENALTY) penaltyCount++;
+      if (s.club === PENALTY || s.club === 'Putter') return;
+      // Every shot counts for its club; only shots with a measured distance count for Avg and Longest.
       const d = shotDistance(list, i);
-      if (!d) return;
-      if (!longest || d.m > longest.m) longest = d;
-      if (!longestAll || d.m > longestAll.m) longestAll = d;
       const key = s.club + (s.chip ? ' (chip)' : '');
-      const st = clubStats[key] || (clubStats[key] = { n: 0, sum: 0, max: 0 });
-      st.n++; st.sum += d.m; st.max = Math.max(st.max, d.m);
+      const st = clubStats[key] || (clubStats[key] = { n: 0, measured: 0, sum: 0, max: 0, shots: [] });
+      st.n++;
+      st.shots.push({ h, n: i + 1, d });
+      if (!d) return;
+      st.measured++; st.sum += d.m; st.max = Math.max(st.max, d.m);
+      if (!longestAll || d.m > longestAll.d.m) longestAll = { d, key, h };
     });
-    return { h, list, info, extra, played, shown, diff, net, points, longest };
+    return { h, list, info, extra, played, shown, diff, net, points };
   });
 
   function sumRows(list) {
@@ -900,19 +907,26 @@ function renderCard() {
   const totals = sumRows(perHole);
 
   // Iterate in club order so a chip variant appears right after its normal club, e.g. 9i then 9i (chip).
+  // Each club row expands like a hole row on the Score tab, showing its shots in hole order.
   let clubRows = '';
   CLUBS.forEach(c => {
     [c, c + ' (chip)'].forEach(key => {
       const st = clubStats[key];
       if (!st) return;
-      clubRows += `<tr><td>${key}</td><td>${st.n}</td><td>${Math.round(st.sum / st.n)} m</td><td>${Math.round(st.max)} m</td></tr>`;
+      const open = cardOpenClubs.has(key);
+      clubRows += `
+        <tr class="expandable${open ? ' open' : ''}" data-action="toggle-club-row" data-club="${esc(key)}" tabindex="0" aria-expanded="${open}" aria-label="${esc(key)}, ${open ? 'hide' : 'show'} shots">
+          <td>${esc(key)}</td><td>${st.n}</td><td>${st.measured ? `${Math.round(st.sum / st.measured)} m` : '–'}</td><td>${st.measured ? `${Math.round(st.max)} m` : '–'}</td>
+        </tr>`;
+      if (open) {
+        clubRows += st.shots.map((shot, i) => `
+        <tr class="shot-row${i === st.shots.length - 1 ? ' last' : ''}">
+          <td>Hole ${shot.h}, shot ${shot.n}</td>
+          <td colspan="3" class="shot-m">${shot.d ? fmtDist(shot.d) : '–'}</td>
+        </tr>`).join('');
+      }
     });
   });
-  const longestRows = perHole.map(r => `
-      <tr>
-        <td><button class="cellbtn" data-action="goto-hole" data-hole="${r.h}" aria-label="Go to hole ${r.h}">${r.h}</button></td>
-        <td>${r.longest ? fmtDist(r.longest) : '–'}</td>
-      </tr>`).join('');
 
   let hcpLine = '';
   if (hasInfo) {
@@ -932,20 +946,18 @@ function renderCard() {
         <button class="pill${cardTab === 'clubs' ? ' on' : ''}" data-action="card-tab" data-tab="clubs" aria-pressed="${cardTab === 'clubs'}">Clubs</button>
       </div>`;
 
-  // Shot stats: longest shot per hole, then average and longest per club.
-  const clubsTab = longestAll ? `
-        <table class="score">
-          <thead><tr><th>Hole</th><th>Longest</th></tr></thead>
-          <tbody>${longestRows}</tbody>
-          <tfoot><tr><td>Round</td><td>${fmtDist(longestAll)}</td></tr></tfoot>
-        </table>
-        <h3 class="score-h3">Clubs</h3>
+  // Shot stats: the round's longest shot as a headline, then shots, average and longest per club.
+  // The club list shows even when no distances were measured, e.g. when GPS was unavailable.
+  const clubsTab = clubRows ? `
+        ${longestAll
+          ? `<p class="longest-line">Longest shot: <strong>${fmtDist(longestAll.d)}</strong> <span>${esc(longestAll.key)}, hole ${longestAll.h}</span></p>`
+          : '<p class="note" style="margin:0 0 10px">No shot distances for this round yet. A distance is measured when a stroke and the next one, or its landing spot, both have a GPS position.</p>'}
         <table class="score">
           <thead><tr><th>Club</th><th>Shots</th><th>Avg</th><th>Longest</th></tr></thead>
           <tbody>${clubRows}</tbody>
         </table>
-        <p class="note">Putter and penalty strokes are not included. Chip shots are grouped separately from full swings with the same club. ≈ means GPS accuracy was worse than about 25 m.</p>`
-    : `<p class="note">No shot distances for this round yet. A distance is measured when a stroke and the next one, or its landing spot, both have a GPS position.</p>`;
+        <p class="note">Putter and penalty strokes are not included. Avg and Longest use shots with a measured distance. Chip shots are grouped separately from full swings with the same club. ≈ means GPS accuracy was worse than about 25 m.</p>`
+    : `<p class="note">No shots with a club yet. Putter and penalty strokes are not counted here.</p>`;
 
   return `
     <div class="screen">
@@ -1466,11 +1478,23 @@ async function exportData() {
 
 /* ---------- Event handling ---------- */
 
+// Expands or collapses a scorecard row (a hole or a club), keeping the scroll position and keyboard focus.
+function toggleCardRow(openSet, key, rowSelector) {
+  if (openSet.has(key)) openSet.delete(key); else openSet.add(key);
+  const scroller = app.querySelector('.scroll');
+  const top = scroller ? scroller.scrollTop : 0;
+  render();
+  const next = app.querySelector('.scroll');
+  if (next) next.scrollTop = top;
+  const row = app.querySelector(rowSelector);
+  if (row && document.activeElement === document.body) row.focus({ preventScroll: true });
+}
+
 // One delegated click handler for the whole app.
 // Expandable scorecard rows are not buttons, so let Enter and Space toggle them from the keyboard.
 app.addEventListener('keydown', event => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
-  if (!event.target.matches || !event.target.matches('tr[data-action="toggle-hole"]')) return;
+  if (!event.target.matches || !event.target.matches('tr.expandable[data-action]')) return;
   event.preventDefault();
   event.target.click();
 });
@@ -1532,19 +1556,13 @@ app.addEventListener('click', event => {
     }
     case 'toggle-club': toggleClub(el.dataset.club); break;
     case 'back': closeRound(); break;
-    case 'scorecard': view = 'card'; cardTab = 'score'; cardScroll = { score: 0, clubs: 0 }; cardOpen = new Set(); render(); break;
-    case 'toggle-hole': {
-      const hole = Number(el.dataset.hole);
-      if (cardOpen.has(hole)) cardOpen.delete(hole); else cardOpen.add(hole);
-      const scroller = app.querySelector('.scroll');
-      const top = scroller ? scroller.scrollTop : 0;
+    case 'scorecard':
+      view = 'card'; cardTab = 'score'; cardScroll = { score: 0, clubs: 0 };
+      cardOpen = new Set(); cardOpenClubs = new Set();
       render();
-      const next = app.querySelector('.scroll');
-      if (next) next.scrollTop = top;
-      const row = app.querySelector(`tr[data-action="toggle-hole"][data-hole="${hole}"]`);
-      if (row && document.activeElement === document.body) row.focus({ preventScroll: true });
       break;
-    }
+    case 'toggle-hole': toggleCardRow(cardOpen, Number(el.dataset.hole), `tr[data-action="toggle-hole"][data-hole="${el.dataset.hole}"]`); break;
+    case 'toggle-club-row': toggleCardRow(cardOpenClubs, el.dataset.club, `tr[data-action="toggle-club-row"][data-club="${CSS.escape(el.dataset.club)}"]`); break;
     case 'card-tab': {
       const scroller = app.querySelector('.scroll');
       if (scroller) cardScroll[cardTab] = scroller.scrollTop;
