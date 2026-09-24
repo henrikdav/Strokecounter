@@ -1971,6 +1971,57 @@ app.addEventListener('keydown', event => {
   if (x >= max - 2) unlockHole();
 });
 
+/* ---------- Swipe between holes ---------- */
+
+// On the round screen a clear horizontal swipe moves to the next (left) or previous (right) hole, locked or not.
+// Taps and vertical scrolling are unaffected; a drag that starts on the unlock slider's knob belongs to the slider.
+const SWIPE_MIN = 60;   // px of horizontal finger travel for a swipe
+let swipe = null;       // { x, y }
+
+app.addEventListener('touchstart', event => {
+  swipe = null;
+  if (view !== 'round' || sheet || event.touches.length !== 1) return;
+  if (event.target.closest('.unlock-knob')) return;
+  const t = event.touches[0];
+  swipe = { x: t.clientX, y: t.clientY };
+}, { passive: true });
+
+app.addEventListener('touchend', event => {
+  if (!swipe) return;
+  const t = event.changedTouches[0];
+  const dx = t.clientX - swipe.x;
+  const dy = t.clientY - swipe.y;
+  swipe = null;
+  if (Math.abs(dx) < SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  swipeHole(dx < 0 ? 1 : -1);
+}, { passive: true });
+app.addEventListener('touchcancel', () => { swipe = null; });
+
+function swipeHole(delta) {
+  const round = getRound();
+  const first = round.startHole || 1;
+  const last = first + round.holeCount - 1;
+  const target = round.currentHole + delta;
+  const reduced = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const screen = app.querySelector('.screen');
+  if (target < first || target > last) {
+    // No hole that way: a short bounce instead of navigating.
+    if (!reduced && screen && screen.animate) {
+      screen.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${-delta * 14}px)` }, { transform: 'translateX(0)' }],
+        { duration: 220, easing: 'ease-out' });
+    }
+    return;
+  }
+  changeHole(delta);
+  // Slide the new hole's content in from the side the finger moved towards.
+  if (!reduced) {
+    app.querySelectorAll('.holebar, .counter, .strokes').forEach(el => {
+      if (el.animate) el.animate([{ transform: `translateX(${delta * 28}px)`, opacity: 0.3 }, { transform: 'translateX(0)', opacity: 1 }],
+        { duration: 180, easing: 'ease-out' });
+    });
+  }
+}
+
 /* ---------- Pull to refresh and updates ---------- */
 
 // Reloads the app from the server, bypassing any cached copy. Saved data lives in localStorage and is not touched.
