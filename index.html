@@ -47,6 +47,8 @@
   .top h1, .top h2 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
   .top h2 { font-size: 20px; }
   .ghost { background: none; border: 0; color: var(--fairway); font-weight: 700; padding: 10px 4px; min-height: 44px; }
+  .ghost.side { min-width: 64px; text-align: left; }   /* equal width on both sides keeps the title centred */
+  .ghost.side.right { text-align: right; }
 
   .gps { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; padding: 5px 11px;
          border-radius: 999px; background: var(--white); border: 1px solid var(--line); }
@@ -166,6 +168,7 @@
   .seg input:disabled + span { opacity: .35; }
   .seg input:focus-visible + span { outline: 3px solid var(--fairway); outline-offset: 2px; }
   .sheet .primary { margin-top: 16px; }
+  .export-box { min-height: 44vh; font-size: 13px; }
   @keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 
   /* Course editor */
@@ -845,6 +848,120 @@ function renderRound() {
     </div>`;
 }
 
+const exportDateFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+// A plain-text recap of the whole round for pasting into an AI or sharing: header, each hole with its strokes
+// (club, modifiers, distance), then OUT/IN/Total. No GPS positions or times. Null when nothing is logged yet.
+function roundExportText(round) {
+  const numbers = holeNumbers(round);
+  if (!numbers.some(h => (round.holes[h] || []).length)) return null;
+  const hasInfo = !!round.holeData && Object.keys(round.holeData).length > 0;
+  const hasExtras = strokesReceived(round, round.startHole || 1) !== null;
+  const scores = numbers.map(h => holeScore(round, h, hasExtras));
+  const played = scores.filter(r => r.played).length;
+  const course = round.courseId ? db.courses.find(c => c.id === round.courseId) : null;
+
+  // An unnamed round is labelled by its date, which already has its own line.
+  const lines = round.name ? [`Round: ${round.name}`] : [];
+  if (course && course.name !== round.name) lines.push(`Course: ${course.name}`);
+  lines.push(`Date: ${exportDateFmt.format(round.createdAt)}`);
+  const suffix = holeSuffix(round);
+  lines.push(`Holes: ${round.holeCount}${suffix.startsWith('of') ? '' : ` (${suffix})`}, ${played} played`);
+  if (round.handicap) {
+    const hcp = round.handicap;
+    lines.push(`Playing handicap: ${hcp.base}` + (hcp.allowance !== 100 ? ` at ${hcp.allowance}% = ${adjustedHandicap(round)}` : ''));
+  }
+  lines.push('');
+
+  // "+1 gross, −1 net, 3 points" (only the parts that can be worked out)
+  const results = r => [
+    r.diff !== null ? `${fmtToPar(r.diff)} gross` : null,
+    r.net !== null ? `${fmtToPar(r.net)} net` : null,
+    r.points !== null ? `${r.points} ${r.points === 1 ? 'point' : 'points'}` : null
+  ].filter(Boolean).join(', ');
+
+  scores.filter(r => r.played).forEach(r => {
+    const head = [`Hole ${r.h}`];
+    if (r.info) {
+      head.push(`Par ${r.info.par}`);
+      if (Number.isInteger(r.info.index)) head.push(`Index ${r.info.index}`);
+      if (r.info.length) head.push(`${r.info.length} m`);
+    }
+    if (r.extra) head.push(`${r.extra} extra ${r.extra === 1 ? 'stroke' : 'strokes'}`);
+    lines.push(head.join(' · '));
+    const res = results(r);
+    lines.push(`  ${r.shown} ${r.shown === 1 ? 'stroke' : 'strokes'}${res ? ` (${res})` : ''}`);
+    r.list.forEach((stroke, i) => {
+      const mods = MODS.filter(m => stroke[m.key]).map(m => m.key);
+      const d = shotDistance(r.list, i);
+      const label = stroke.club === PENALTY ? 'Penalty stroke' : stroke.club;
+      lines.push(`  ${i + 1}. ${label}${mods.length ? ` (${mods.join(', ')})` : ''}${d ? ` – ${fmtDist(d)}` : ''}`);
+    });
+    lines.push('');
+  });
+
+  // Unplayed holes on one line, with runs shortened: "Not played: holes 4–9, 12".
+  const unplayed = scores.filter(r => !r.played).map(r => r.h);
+  if (unplayed.length) {
+    const runs = [];
+    unplayed.forEach(h => {
+      const last = runs[runs.length - 1];
+      if (last && h === last[1] + 1) last[1] = h; else runs.push([h, h]);
+    });
+    lines.push(`Not played: ${unplayed.length === 1 ? 'hole' : 'holes'} ${runs.map(([a, b]) => a === b ? a : `${a}–${b}`).join(', ')}`, '');
+  }
+
+  // Totals only count the holes played, so par is the par of those holes too.
+  const totalLine = (label, list) => {
+    const playedList = list.filter(r => r.played);
+    if (!playedList.length) return `${label}: not played`;
+    const t = sumScores(playedList);
+    const holesPart = playedList.length < list.length ? `${playedList.length} of ${list.length} holes` : null;
+    const parts = [holesPart, hasInfo ? `par ${t.par}` : null, results(t) || null].filter(Boolean);
+    return `${label}: ${t.strokes} strokes${parts.length ? ` (${parts.join(', ')})` : ''}`;
+  };
+  lines.push('Totals');
+  if (round.holeCount === 18) {
+    lines.push(totalLine('OUT', scores.slice(0, 9)));
+    lines.push(totalLine('IN', scores.slice(9, 18)));
+  }
+  lines.push(totalLine('Total', scores));
+  const penalties = scores.reduce((n, r) => n + r.list.filter(st => st.club === PENALTY).length, 0);
+  if (penalties) lines.push(`Penalty strokes: ${penalties}`);
+  if (hasInfo) lines.push('', 'Gross is strokes compared with par. Net is the same after handicap extra strokes. Points are Stableford. Distances are GPS measurements from each stroke to the next; ≈ means low GPS accuracy.');
+  return lines.join('\n');
+}
+
+// One hole's result: strokes, gross (to par), net (after extra strokes) and Stableford points.
+// Values that can't be worked out (hole not played, no par, no handicap) are null.
+function holeScore(round, h, hasExtras) {
+  const list = round.holes[h] || [];
+  const info = holeInfo(round, h);
+  const extra = hasExtras ? strokesReceived(round, h) : null;
+  const played = list.length > 0;
+  const shown = played ? list.length : null;
+  const diff = info && played ? shown - info.par : null;
+  // Stableford: 2 points for net par, +1 per stroke better, -1 per stroke worse, never below 0.
+  const points = hasExtras && info && played ? Math.max(0, 2 + info.par - (shown - extra)) : null;
+  // Net: strokes minus handicap strokes, compared with par.
+  const net = hasExtras && info && played ? shown - extra - info.par : null;
+  return { h, list, info, extra, played, shown, diff, net, points };
+}
+
+// Adds up hole results for OUT, IN and Total.
+function sumScores(list) {
+  let par = 0, extra = 0, strokes = 0, diff = null, net = null, points = null, any = false;
+  list.forEach(r => {
+    if (r.info) par += r.info.par;
+    if (r.extra) extra += r.extra;
+    if (r.played) { strokes += r.shown; any = true; }
+    if (r.diff !== null) diff = (diff || 0) + r.diff;
+    if (r.net !== null) net = (net || 0) + r.net;
+    if (r.points !== null) points = (points || 0) + r.points;
+  });
+  return { par, extra, strokes: any ? strokes : null, diff, net, points };
+}
+
 function renderCard() {
   const round = getRound();
   const hasInfo = !!round.holeData && Object.keys(round.holeData).length > 0;
@@ -856,16 +973,8 @@ function renderCard() {
   // Compute each hole's numbers first, so OUT/IN subtotal rows can be inserted
   // between the front and back nine without a second pass over the strokes.
   const perHole = holeNumbers(round).map(h => {
-    const list = round.holes[h] || [];
-    const info = holeInfo(round, h);
-    const extra = hasExtras ? strokesReceived(round, h) : null;
-    const played = list.length > 0;
-    const shown = played ? list.length : null;
-    const diff = info && played ? shown - info.par : null;
-    // Stableford: 2 points for net par, +1 per stroke better, -1 per stroke worse, never below 0.
-    const points = hasExtras && info && played ? Math.max(0, 2 + info.par - (shown - extra)) : null;
-    // Net: strokes minus handicap strokes, compared with par.
-    const net = hasExtras && info && played ? shown - extra - info.par : null;
+    const score = holeScore(round, h, hasExtras);
+    const { list } = score;
     list.forEach((s, i) => {
       if (s.club === PENALTY) penaltyCount++;
       if (s.club === PENALTY || s.club === 'Putter') return;
@@ -879,21 +988,8 @@ function renderCard() {
       st.measured++; st.sum += d.m; st.max = Math.max(st.max, d.m);
       if (!longestAll || d.m > longestAll.d.m) longestAll = { d, key, h };
     });
-    return { h, list, info, extra, played, shown, diff, net, points };
+    return score;
   });
-
-  function sumRows(list) {
-    let par = 0, extra = 0, strokes = 0, diff = null, net = null, points = null, any = false;
-    list.forEach(r => {
-      if (r.info) par += r.info.par;
-      if (r.extra) extra += r.extra;
-      if (r.played) { strokes += r.shown; any = true; }
-      if (r.diff !== null) diff = (diff || 0) + r.diff;
-      if (r.net !== null) net = (net || 0) + r.net;
-      if (r.points !== null) points = (points || 0) + r.points;
-    });
-    return { par, extra, strokes: any ? strokes : null, diff, net, points };
-  }
 
   // Gross and Net are strokes over or under par, before and after handicap strokes; Points is Stableford.
   function resultCells(r) {
@@ -962,13 +1058,13 @@ function renderCard() {
   if (round.holeCount === 18) {
     const front = perHole.slice(0, 9);
     const back = perHole.slice(9, 18);
-    rows += front.map(holeRow).join('') + subtotalRow('OUT', sumRows(front));
+    rows += front.map(holeRow).join('') + subtotalRow('OUT', sumScores(front));
     rows += `<tr class="nine-gap"><td colspan="${columnCount}"></td></tr><tr class="nine-head">${headCells}</tr>`;
-    rows += back.map(holeRow).join('') + subtotalRow('IN', sumRows(back));
+    rows += back.map(holeRow).join('') + subtotalRow('IN', sumScores(back));
   } else {
     rows += perHole.map(holeRow).join('');
   }
-  const totals = sumRows(perHole);
+  const totals = sumScores(perHole);
 
   // Club order, with each club's full swings first and then its chip, pitch and bunker variants, e.g. 9i, 9i (chip).
   // Each club row expands like a hole row on the Score tab, showing its shots in hole order.
@@ -1024,9 +1120,9 @@ function renderCard() {
   return `
     <div class="screen">
       <header class="top">
-        <button class="ghost" data-action="card-back">‹ Back</button>
+        <button class="ghost side" data-action="card-back">‹ Back</button>
         <h2>Scorecard</h2>
-        <span style="width:64px"></span>
+        <button class="ghost side right" data-action="export-round">Export</button>
       </header>
       <p class="card-title card-head">${esc(roundLabel(round))}<small>${esc(dateFmt.format(round.createdAt))} ${esc(timeFmt.format(round.createdAt))}</small></p>
       ${tabBar}
@@ -1100,6 +1196,20 @@ function renderSheet() {
         <textarea class="json-box" id="import-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
         <button class="primary" data-action="do-import">Import</button>
         <button class="link" data-action="close-sheet">Cancel</button>
+      </div>`;
+  }
+
+  if (sheet.type === 'export') {
+    return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Export round">
+        <h2>Export round</h2>
+        ${sheet.text
+          ? `<p class="hint">A text summary of the whole round, ready to paste into a note, a message or an AI chat.</p>
+             <textarea class="json-box export-box" id="export-text" readonly spellcheck="false">${esc(sheet.text)}</textarea>
+             <button class="primary" data-action="copy-export">Copy</button>`
+          : '<p class="hint">No strokes have been logged for this round yet, so there is nothing to export.</p>'}
+        <button class="link" data-action="close-sheet">Close</button>
       </div>`;
   }
 
@@ -1515,12 +1625,16 @@ function toggleClub(club) {
 }
 
 async function exportData() {
-  const text = JSON.stringify({
+  copyText(JSON.stringify({
     exportedAt: new Date().toISOString(),
     courses: db.courses,
     rounds: db.rounds,
     activeClubs: db.activeClubs
-  }, null, 2);
+  }, null, 2));
+}
+
+// Copies text to the clipboard, falling back to a hidden text area where the Clipboard API is unavailable.
+async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
     toast('Copied to clipboard');
@@ -1637,6 +1751,8 @@ app.addEventListener('click', event => {
     }
     case 'card-back': view = 'round'; render(); break;
     case 'edit-handicap': sheet = { type: 'handicap' }; render(); break;
+    case 'export-round': sheet = { type: 'export', text: roundExportText(round) }; render(); break;
+    case 'copy-export': copyText(sheet.text); break;
     case 'save-handicap': saveHandicap(); break;
     case 'remove-handicap':
       round.handicap = null;
