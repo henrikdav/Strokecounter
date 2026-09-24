@@ -867,10 +867,8 @@ function roundExportText(round) {
   lines.push(`Date: ${exportDateFmt.format(round.createdAt)}`);
   const suffix = holeSuffix(round);
   lines.push(`Holes: ${round.holeCount}${suffix.startsWith('of') ? '' : ` (${suffix})`}, ${played} played`);
-  if (round.handicap) {
-    const hcp = round.handicap;
-    lines.push(`Playing handicap: ${hcp.base}` + (hcp.allowance !== 100 ? ` at ${hcp.allowance}% = ${adjustedHandicap(round)}` : ''));
-  }
+  // Only the handicap actually used for extra strokes (after the allowance %), labelled with the holes it covers.
+  if (round.handicap) lines.push(`Playing Handicap (${round.holeCount}H): ${adjustedHandicap(round)}`);
   lines.push('');
 
   // "+1 gross, −1 net, 3 points" (only the parts that can be worked out)
