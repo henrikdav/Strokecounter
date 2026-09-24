@@ -103,6 +103,12 @@
   .modbtn { min-height: 36px; border-radius: 999px; border: 2px solid var(--line); background: var(--paper);
             font-weight: 700; font-size: 14px; padding: 0 2px; }
   .modbtn.on { background: var(--sand); border-color: var(--ink); }
+  /* Round screen: a denser club grid, 6 per row, and slimmer modifier buttons to save vertical space. */
+  .dock .chips { grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 8px; }
+  .dock .chip { min-height: 32px; border-radius: 8px; font-size: 13px; padding: 0 1px; white-space: nowrap; letter-spacing: -0.01em; }
+  .dock .mods { gap: 4px; }
+  .dock .modrow { margin-bottom: 8px; }
+  .dock .modbtn { min-height: 30px; font-size: 13px; }
   .chiptag { font-size: 11px; font-weight: 700; color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; }
   .actions { display: flex; gap: 10px; }
   .undo { width: 88px; min-height: 76px; border-radius: 20px; border: 2px solid var(--line); background: transparent;
