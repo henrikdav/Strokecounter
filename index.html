@@ -97,12 +97,12 @@
   .chip-bag { border-style: dashed; background: transparent; color: var(--mute); }
   .chip-penalty { border-color: var(--flag); color: var(--flag); font-weight: 800; }
   .chip-penalty.on { background: var(--flag); color: var(--white); border-color: var(--flag); }
-  .chipflag { margin: 0 0 10px; }
-  .flagbtn { width: 100%; min-height: 44px; border-radius: 12px; border: 2px solid var(--line); background: var(--paper);
-             font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 9px; }
-  .flagbtn.on { background: var(--sand); border-color: var(--ink); }
-  .flag-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--mute); flex: none; }
-  .flagbtn.on .flag-dot { background: var(--fairway-deep); }
+  .mods { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .modrow { margin: 0 0 10px; }
+  .sheet-mods { margin: 0 0 14px; }
+  .modbtn { min-height: 36px; border-radius: 999px; border: 2px solid var(--line); background: var(--paper);
+            font-weight: 700; font-size: 14px; padding: 0 2px; }
+  .modbtn.on { background: var(--sand); border-color: var(--ink); }
   .chiptag { font-size: 11px; font-weight: 700; color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; }
   .actions { display: flex; gap: 10px; }
   .undo { width: 88px; min-height: 76px; border-radius: 20px; border: 2px solid var(--line); background: transparent;
@@ -215,6 +215,8 @@
   .score.clubs th:not(:first-child) { width: 22%; }
   .score.clubs th, .score.clubs td { white-space: nowrap; }
   .score.clubs th:nth-child(2), .score.clubs tr.expandable td:nth-child(2) { text-align: left; }
+  .score.clubs td.club-cell { white-space: normal; }
+  .club-variant { font-size: 13px; font-weight: 600; color: var(--mute); white-space: nowrap; }
   .shot.flush { padding-left: 0; }
   .longest-line { margin: 4px 0 12px; font-size: 16px; font-weight: 600; }
   .longest-line strong { font-weight: 800; }
@@ -266,6 +268,14 @@ const CLUBS = ['Driver', '3W', '5W', 'Hybrid', '4i', '5i', '6i', '7i', '8i', '9i
 // Penalty is not a club: it is always offered separately, on top of the bag, and is
 // excluded from distance measurement and club stats, like Putter.
 const PENALTY = 'Penalty';
+// Stroke modifiers. Chip and Pitch describe the swing, Bunker and Rough the lie; any combination can apply.
+// Each is stored as a boolean on the stroke, e.g. { club: 'SW', bunker: true, chip: true }.
+const MODS = [
+  { key: 'chip', label: 'Chip' },
+  { key: 'pitch', label: 'Pitch' },
+  { key: 'bunker', label: 'Bunker' },
+  { key: 'rough', label: 'Rough' }
+];
 const PARS = [3, 4, 5, 6];
 const ALLOWANCES = [100, 95, 90, 85];   // handicap adjustment percentages
 const HCP_HINT = 'Read it from the slope table for your tee (the 9-hole value when playing 9 holes). Adjustment is the competition percentage; keep 100% for a casual round.';
@@ -283,9 +293,10 @@ const FIX_MAX_AGE_MS = 30000;
     allowance: 100,            // last used handicap adjustment %
     activeClubs: [...],        // clubs in the bag, shown when adding a stroke
     club: 'Driver',            // club selected for the next stroke
+    modFlags: [],              // modifiers (chip, pitch, bunker, rough) switched on for the next stroke
     activeRoundId: null        // round that was open last time
   }
-  stroke = { t, club, lat, lng, acc, landing?: { lat, lng, acc } }
+  stroke = { t, club, lat, lng, acc, landing?: { lat, lng, acc }, chip?, pitch?, bunker?, rough? }  // modifiers are true when set
 */
 
 function loadDb() {
@@ -307,13 +318,16 @@ function loadDb() {
           rounds: data.rounds,
           activeClubs,
           club: (activeClubs.includes(data.club) || data.club === PENALTY) ? data.club : activeClubs[0],
-          chipFlag: !!data.chipFlag,
+          // Modifiers switched on for the next stroke. Older saves only had a single chip flag.
+          modFlags: Array.isArray(data.modFlags)
+            ? MODS.map(m => m.key).filter(k => data.modFlags.includes(k))
+            : (data.chipFlag ? ['chip'] : []),
           activeRoundId: data.activeRoundId || null
         };
       }
     }
   } catch (err) { /* ignore and start fresh */ }
-  return { courses: [], rounds: [], allowance: 100, activeClubs: [...CLUBS], club: CLUBS[0], chipFlag: false, activeRoundId: null };
+  return { courses: [], rounds: [], allowance: 100, activeClubs: [...CLUBS], club: CLUBS[0], modFlags: [], activeRoundId: null };
 }
 
 function saveDb() {
@@ -332,7 +346,7 @@ let draft = null;        // course being created or edited: { id, name, count, a
 let cardTab = 'score';   // scorecard tab: 'score' | 'clubs'
 let cardScroll = { score: 0, clubs: 0 };  // scroll position per tab, kept while switching
 let cardOpen = new Set();  // hole numbers expanded to show their shots on the scorecard
-let cardOpenClubs = new Set();  // club keys, e.g. '9i (chip)', expanded to show their shots on the Clubs tab
+let cardOpenClubs = new Set();  // club group keys, e.g. '9i (chip)', expanded to show their shots on the Clubs tab
 let lastFix = null;
 let gpsErrorCode = null;
 let watchId = null;
@@ -593,6 +607,30 @@ setInterval(() => { updateGps(); updateLiveDistance(); }, 5000);
 /* ---------- Rendering ---------- */
 
 // Renders a grid of club buttons. `clubs` is the list to show, `active` the highlighted one.
+// Groups a shot for the Clubs tab. Chip, pitch and bunker shots change how far a club goes, so each gets its
+// own row, e.g. "SW (chip, bunker)". Rough is shown on the individual shots instead of splitting rows further.
+function clubGroup(stroke) {
+  const parts = ['chip', 'pitch', 'bunker'].filter(k => stroke[k]);
+  return {
+    key: stroke.club + (parts.length ? ` (${parts.join(', ')})` : ''),
+    variant: parts.join(', '),
+    rank: (stroke.chip ? 1 : 0) + (stroke.pitch ? 2 : 0) + (stroke.bunker ? 4 : 0)
+  };
+}
+
+// Small tags for a stroke's modifiers, e.g. "bunker" and "chip", in the stroke list and scorecard.
+function modTags(stroke) {
+  return MODS.filter(m => stroke[m.key]).map(m => `<span class="chiptag">${m.key}</span>`).join('');
+}
+
+// A row of toggle buttons for the modifiers; `isOn(key)` says which are active.
+function modsHtml(isOn, action) {
+  return `<div class="mods" role="group" aria-label="Shot type and lie">${MODS.map(m => {
+    const on = isOn(m.key);
+    return `<button class="modbtn${on ? ' on' : ''}" data-action="${action}" data-mod="${m.key}" aria-pressed="${on}">${m.label}</button>`;
+  }).join('')}</div>`;
+}
+
 function chipsHtml(clubs, active, action) {
   return clubs.map(c =>
     `<button class="chip${c === active ? ' on' : ''}" data-action="${action}" data-club="${c}">${c}</button>`
@@ -747,7 +785,7 @@ function renderRound() {
         <button class="stroke" data-action="edit-stroke" data-index="${i}">
           <span class="n">${i + 1}</span>
           <span class="club">${esc(s.club)}</span>
-          ${s.chip ? '<span class="chiptag">chip</span>' : ''}
+          ${modTags(s)}
           ${hasPos(s) ? '' : '<span class="nopos">no position</span>'}
         </button>
         ${right}
@@ -790,11 +828,7 @@ function renderRound() {
           <button class="chip chip-penalty${db.club === PENALTY ? ' on' : ''}" data-action="pick-club" data-club="${PENALTY}">Penalty</button>
           <button class="chip chip-bag" data-action="edit-bag">Bag</button>
         </div>
-        <div class="chipflag">
-          <button class="flagbtn${db.chipFlag ? ' on' : ''}" data-action="toggle-chip-flag" aria-pressed="${db.chipFlag}">
-            <span class="flag-dot" aria-hidden="true"></span> Chip shot
-          </button>
-        </div>
+        <div class="modrow"${db.club === PENALTY ? ' hidden' : ''}>${modsHtml(k => db.modFlags.includes(k), 'toggle-mod-flag')}</div>
         <div class="actions">
           <button class="undo" data-action="undo" ${list.length ? '' : 'disabled'}>Undo</button>
           <button class="add" data-action="add">+1 stroke</button>
@@ -829,10 +863,10 @@ function renderCard() {
       if (s.club === PENALTY || s.club === 'Putter') return;
       // Every shot counts for its club; only shots with a measured distance count for Avg and Longest.
       const d = shotDistance(list, i);
-      const key = s.club + (s.chip ? ' (chip)' : '');
-      const st = clubStats[key] || (clubStats[key] = { n: 0, measured: 0, sum: 0, max: 0, shots: [] });
+      const { key, variant, rank } = clubGroup(s);
+      const st = clubStats[key] || (clubStats[key] = { club: s.club, variant, rank, n: 0, measured: 0, sum: 0, max: 0, shots: [] });
       st.n++;
-      st.shots.push({ h, n: i + 1, d });
+      st.shots.push({ h, n: i + 1, d, rough: !!s.rough });
       if (!d) return;
       st.measured++; st.sum += d.m; st.max = Math.max(st.max, d.m);
       if (!longestAll || d.m > longestAll.d.m) longestAll = { d, key, h };
@@ -867,7 +901,7 @@ function renderCard() {
     return r.list.map((s, i) => {
       const d = shotDistance(r.list, i);
       const holeLength = i === 0 && r.info && r.info.length ? `${r.info.length} m` : '';
-      const shot = `<span>${esc(s.club)}</span>${s.chip ? '<span class="chiptag">chip</span>' : ''}${d ? `<span class="shot-dist">${fmtDist(d)}</span>` : ''}`;
+      const shot = `<span>${esc(s.club)}</span>${modTags(s)}${d ? `<span class="shot-dist">${fmtDist(d)}</span>` : ''}`;
       return `
       <tr class="shot-row${i === r.list.length - 1 ? ' last' : ''}">
         ${hasInfo ? `<td colspan="3" class="grp-end">${holeLength}</td>` : `<td>${holeLength}</td>`}
@@ -928,27 +962,25 @@ function renderCard() {
   }
   const totals = sumRows(perHole);
 
-  // Iterate in club order so a chip variant appears right after its normal club, e.g. 9i then 9i (chip).
+  // Club order, with each club's full swings first and then its chip, pitch and bunker variants, e.g. 9i, 9i (chip).
   // Each club row expands like a hole row on the Score tab, showing its shots in hole order.
   let clubRows = '';
-  CLUBS.forEach(c => {
-    [c, c + ' (chip)'].forEach(key => {
-      const st = clubStats[key];
-      if (!st) return;
+  Object.entries(clubStats)
+    .sort(([, a], [, b]) => (CLUBS.indexOf(a.club) - CLUBS.indexOf(b.club)) || (a.rank - b.rank))
+    .forEach(([key, st]) => {
       const open = cardOpenClubs.has(key);
       clubRows += `
         <tr class="expandable${open ? ' open' : ''}" data-action="toggle-club-row" data-club="${esc(key)}" tabindex="0" aria-expanded="${open}" aria-label="${esc(key)}, ${open ? 'hide' : 'show'} shots">
-          <td>${esc(key)}</td><td>${st.n}</td><td>${st.measured ? `${Math.round(st.sum / st.measured)} m` : '–'}</td><td>${st.measured ? `${Math.round(st.max)} m` : '–'}</td>
+          <td class="club-cell">${esc(st.club)}${st.variant ? ` <span class="club-variant">${st.variant}</span>` : ''}</td><td>${st.n}</td><td>${st.measured ? `${Math.round(st.sum / st.measured)} m` : '–'}</td><td>${st.measured ? `${Math.round(st.max)} m` : '–'}</td>
         </tr>`;
       if (open) {
         clubRows += st.shots.map((shot, i) => `
         <tr class="shot-row${i === st.shots.length - 1 ? ' last' : ''}">
           <td></td>
-          <td colspan="3"><div class="shot flush"><span>Hole ${shot.h}, shot ${shot.n}</span><span class="shot-dist">${shot.d ? fmtDist(shot.d) : '–'}</span></div></td>
+          <td colspan="3"><div class="shot flush"><span>Hole ${shot.h}, shot ${shot.n}</span>${shot.rough ? '<span class="chiptag">rough</span>' : ''}<span class="shot-dist">${shot.d ? fmtDist(shot.d) : '–'}</span></div></td>
         </tr>`).join('');
       }
     });
-  });
 
   let hcpLine = '';
   if (hasInfo) {
@@ -978,7 +1010,7 @@ function renderCard() {
           <thead><tr><th>Club</th><th>Shots</th><th>Avg</th><th>Longest</th></tr></thead>
           <tbody>${clubRows}</tbody>
         </table>
-        <p class="note">Putter and penalty strokes are not included. Avg and Longest use shots with a measured distance. Chip shots are grouped separately from full swings with the same club. ≈ means GPS accuracy was worse than about 25 m.</p>`
+        <p class="note">Putter and penalty strokes are not included. Avg and Longest use shots with a measured distance. Chip, pitch and bunker shots are listed separately from full swings with the same club; rough is marked on each shot. ≈ means GPS accuracy was worse than about 25 m.</p>`
     : `<p class="note">No shots with a club yet. Putter and penalty strokes are not counted here.</p>`;
 
   return `
@@ -1107,10 +1139,8 @@ function renderSheet() {
   if (!stroke) return '';
   // Show the bag clubs, plus this stroke's club if it has since been removed from the bag, plus Penalty.
   const options = CLUBS.filter(c => db.activeClubs.includes(c) || c === stroke.club).concat(PENALTY);
-  const chipToggle = stroke.club !== PENALTY
-    ? `<button class="flagbtn${stroke.chip ? ' on' : ''}" data-action="toggle-stroke-chip" aria-pressed="${!!stroke.chip}" style="margin-bottom:14px">
-         <span class="flag-dot" aria-hidden="true"></span> Chip shot
-       </button>`
+  const modToggles = stroke.club !== PENALTY
+    ? `<p class="hint">Shot type and lie</p><div class="sheet-mods">${modsHtml(k => !!stroke[k], 'toggle-stroke-mod')}</div>`
     : '';
   return `
     <div class="backdrop" data-action="close-sheet"></div>
@@ -1118,7 +1148,7 @@ function renderSheet() {
       <h2>Stroke ${sheet.index + 1} on hole ${round.currentHole}</h2>
       <p class="hint">Choose club</p>
       <div class="chips">${chipsHtml(options, stroke.club, 'set-club')}</div>
-      ${chipToggle}
+      ${modToggles}
       <button class="danger" data-action="delete-stroke">Delete stroke</button>
       <button class="link" data-action="close-sheet">Cancel</button>
     </div>`;
@@ -1390,10 +1420,10 @@ function addStroke() {
   const list = holeList(round, round.currentHole);
   const fix = freshFix();
   const stroke = { t: Date.now(), club: db.club };
-  if (db.club !== PENALTY && db.chipFlag) stroke.chip = true;
+  if (db.club !== PENALTY) db.modFlags.forEach(k => { stroke[k] = true; });
   if (fix) { stroke.lat = fix.lat; stroke.lng = fix.lng; stroke.acc = fix.acc; }
   list.push(stroke);
-  db.chipFlag = false;   // the flag applies to one stroke at a time
+  db.modFlags = [];   // modifiers describe one stroke, so they reset after it is logged
   saveDb();
   render();
   popCounter();
@@ -1561,18 +1591,20 @@ app.addEventListener('click', event => {
     case 'do-import': importCourses(document.getElementById('import-text').value); break;
 
     case 'edit-bag': sheet = { type: 'bag' }; render(); break;
-    case 'toggle-chip-flag':
-      db.chipFlag = !db.chipFlag;
+    case 'toggle-mod-flag': {
+      const key = el.dataset.mod;
+      db.modFlags = db.modFlags.includes(key) ? db.modFlags.filter(k => k !== key) : db.modFlags.concat(key);
       saveDb();
-      app.querySelectorAll('.chipflag .flagbtn').forEach(btn => {
-        btn.classList.toggle('on', db.chipFlag);
-        btn.setAttribute('aria-pressed', String(db.chipFlag));
-      });
+      const on = db.modFlags.includes(key);
+      el.classList.toggle('on', on);
+      el.setAttribute('aria-pressed', String(on));
       break;
-    case 'toggle-stroke-chip': {
+    }
+    case 'toggle-stroke-mod': {
       const list = holeList(round, round.currentHole);
       const stroke = list[sheet.index];
-      if (stroke) { if (stroke.chip) delete stroke.chip; else stroke.chip = true; }
+      const key = el.dataset.mod;
+      if (stroke) { if (stroke[key]) delete stroke[key]; else stroke[key] = true; }
       saveDb();
       render();
       break;
@@ -1621,6 +1653,8 @@ app.addEventListener('click', event => {
       app.querySelectorAll('.dock .chip[data-club]').forEach(chip => {
         chip.classList.toggle('on', chip.dataset.club === db.club);
       });
+      // Penalty strokes take no modifiers, so the row is hidden while Penalty is selected.
+      app.querySelectorAll('.dock .modrow').forEach(row => { row.hidden = db.club === PENALTY; });
       break;
     case 'edit-stroke': sheet = { type: 'stroke', index: Number(el.dataset.index) }; render(); break;
     case 'set-club': {
@@ -1628,7 +1662,7 @@ app.addEventListener('click', event => {
       const stroke = list[sheet.index];
       if (stroke) {
         stroke.club = el.dataset.club;
-        if (stroke.club === PENALTY) delete stroke.chip;
+        if (stroke.club === PENALTY) MODS.forEach(m => { delete stroke[m.key]; });
       }
       sheet = null;
       saveDb();
