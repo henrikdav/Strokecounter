@@ -791,6 +791,8 @@ function renderRound() {
   const extra = strokesReceived(round, hole);
   const last = list.length - 1;
 
+  // A locked hole shows its strokes read-only; unlock it to change them.
+  const locked = isLocked(round, hole);
   const rows = list.map((s, i) => {
     const d = shotDistance(list, i);
     let right;
@@ -798,7 +800,7 @@ function renderRound() {
       right = '<span class="dist muted">–</span>';
     } else if (d) {
       right = `<span class="dist">${fmtDist(d)}</span>`;
-    } else if (i === last && hasPos(s)) {
+    } else if (i === last && hasPos(s) && !locked) {
       // Live measurement: shows the distance from this stroke to where you stand now.
       // Tapping it stops the measurement and locks the distance.
       right = `<button class="measure" data-action="measure" aria-label="Stop and lock this distance">
@@ -810,12 +812,12 @@ function renderRound() {
     }
     return `
       <li>
-        <button class="stroke" data-action="edit-stroke" data-index="${i}">
+        <${locked ? 'div' : 'button'} class="stroke"${locked ? '' : ` data-action="edit-stroke" data-index="${i}"`}>
           <span class="n">${i + 1}</span>
           <span class="club">${esc(s.club)}</span>
           ${modTags(s)}
           ${hasPos(s) ? '' : '<span class="nopos">no position</span>'}
-        </button>
+        </${locked ? 'div' : 'button'}>
         ${right}
       </li>`;
   }).join('');
@@ -850,9 +852,9 @@ function renderRound() {
       <ol class="strokes">
         ${rows || '<li class="hint-empty">Tap +1 stroke right after each shot, while you are still standing where you hit from. Distance is measured to your next stroke.</li>'}
       </ol>
-      ${isLocked(round, hole) ? `
+      ${locked ? `
       <footer class="dock">
-        <p class="unlock-hint">Hole ${hole} is done and locked. Tap a stroke to fix it, or slide to unlock.</p>
+        <p class="unlock-hint">Hole ${hole} is done and locked. Slide to unlock if you need to change a stroke.</p>
         <div class="unlock">
           <span class="unlock-label" aria-hidden="true">Unlock</span>
           <span class="unlock-knob" role="slider" tabindex="0" aria-label="Slide all the way to unlock hole ${hole}"
@@ -1808,7 +1810,7 @@ app.addEventListener('click', event => {
     case 'next-hole': changeHole(1); break;
     case 'add': addStroke(); break;
     case 'done-hole': doneHole(); break;
-    case 'measure': measureLanding(); break;
+    case 'measure': if (!isLocked(round, round.currentHole)) measureLanding(); break;
     case 'pick-club':
       db.club = el.dataset.club;
       saveDb();
@@ -1818,7 +1820,9 @@ app.addEventListener('click', event => {
       // Penalty strokes take no modifiers, so the buttons are disabled while Penalty is selected.
       app.querySelectorAll('.dock .modbtn').forEach(btn => { btn.disabled = db.club === PENALTY; });
       break;
-    case 'edit-stroke': sheet = { type: 'stroke', index: Number(el.dataset.index) }; render(); break;
+    case 'edit-stroke':
+      if (isLocked(round, round.currentHole)) break;  // locked holes are read-only until unlocked
+      sheet = { type: 'stroke', index: Number(el.dataset.index) }; render(); break;
     case 'set-club': {
       const list = holeList(round, round.currentHole);
       const stroke = list[sheet.index];
