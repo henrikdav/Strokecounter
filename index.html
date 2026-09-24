@@ -114,12 +114,22 @@
   .dock .modbtn { min-height: 30px; font-size: 13px; }
   .chiptag { font-size: 11px; font-weight: 700; color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; }
   .actions { display: flex; gap: 10px; }
-  .undo { width: 88px; min-height: 76px; border-radius: 20px; border: 2px solid var(--line); background: transparent;
-          font-weight: 700; color: var(--mute); }
-  .undo:disabled { opacity: .4; }
+  .done { width: 104px; min-height: 76px; border-radius: 20px; border: 2px solid var(--fairway); background: var(--white);
+          font-size: 20px; font-weight: 800; color: var(--fairway-deep); }
   .add { flex: 1; min-height: 76px; border-radius: 20px; border: 0; background: var(--fairway); color: var(--white);
          font-size: 30px; font-weight: 800; box-shadow: 0 4px 0 var(--fairway-deep); }
   .add:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--fairway-deep); }
+
+  /* Locked hole: the controls are replaced by a slider that must be dragged all the way across. */
+  .unlock-hint { margin: 0 0 10px; text-align: center; color: var(--mute); font-size: 14px; font-weight: 600; }
+  .unlock { position: relative; height: 68px; padding: 4px; border-radius: 999px; background: var(--paper);
+            border: 2px solid var(--line); touch-action: none; -webkit-user-select: none; user-select: none; }
+  .unlock-label { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+                  font-size: 20px; font-weight: 800; color: var(--fairway-deep); letter-spacing: .02em; }
+  .unlock-knob { position: relative; z-index: 1; display: grid; place-items: center; width: 64px; height: 56px;
+                 border-radius: 999px; background: var(--fairway); color: var(--white); font-size: 30px; font-weight: 800;
+                 box-shadow: 0 2px 0 var(--fairway-deep); touch-action: none; cursor: grab; }
+  .unlock-knob.settle { transition: transform .25s ease-out; }
 
   /* Lists (rounds and courses) */
   .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 14px; -webkit-overflow-scrolling: touch; }
@@ -260,6 +270,7 @@
     .sheet { animation: none; }
     #toast { transition: none; }
     #ptr.settle { transition: none; }
+    .unlock-knob.settle { transition: none; }
     #ptr.updating .ptr-icon svg { animation: none; }
   }
 </style>
@@ -299,7 +310,8 @@ const FIX_MAX_AGE_MS = 30000;
                courseId,                                      // null when played without a course
                holeData: { "1": { par, length, index }, ... }, // copied from the course when the round starts
                handicap: { base, allowance } | null,           // playing handicap from the slope table + adjustment %
-               holes: { "1": [stroke, ...], ... } }],         // keyed by real hole number (startHole ...)
+               holes: { "1": [stroke, ...], ... },           // keyed by real hole number (startHole ...)
+               locked: [1, 2, ...] }],                        // holes finished with Done; their controls are locked
     allowance: 100,            // last used handicap adjustment %
     activeClubs: [...],        // clubs in the bag, shown when adding a stroke
     club: 'Driver',            // club selected for the next stroke
@@ -458,6 +470,11 @@ function roundTotals(round) {
     if (diff !== null) toPar = (toPar || 0) + diff;
   }
   return { total, played, toPar };
+}
+
+// Holes finished with Done are locked: their stroke controls are replaced by an unlock slider.
+function isLocked(round, hole) {
+  return Array.isArray(round.locked) && round.locked.includes(hole);
 }
 
 // Label next to the hole number: "of 18", "front 9" or "back 9".
@@ -833,6 +850,15 @@ function renderRound() {
       <ol class="strokes">
         ${rows || '<li class="hint-empty">Tap +1 stroke right after each shot, while you are still standing where you hit from. Distance is measured to your next stroke.</li>'}
       </ol>
+      ${isLocked(round, hole) ? `
+      <footer class="dock">
+        <p class="unlock-hint">Hole ${hole} is done and locked. Tap a stroke to fix it, or slide to unlock.</p>
+        <div class="unlock">
+          <span class="unlock-label" aria-hidden="true">Unlock</span>
+          <span class="unlock-knob" role="slider" tabindex="0" aria-label="Slide all the way to unlock hole ${hole}"
+                aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">›</span>
+        </div>
+      </footer>` : `
       <footer class="dock">
         <div class="chips">
           ${chipsHtml(db.activeClubs, db.club, 'pick-club')}
@@ -841,10 +867,10 @@ function renderRound() {
         </div>
         <div class="modrow">${modsHtml(k => db.modFlags.includes(k), 'toggle-mod-flag', db.club === PENALTY)}</div>
         <div class="actions">
-          <button class="undo" data-action="undo" ${list.length ? '' : 'disabled'}>Undo</button>
           <button class="add" data-action="add">+1 stroke</button>
+          <button class="done" data-action="done-hole">Done</button>
         </div>
-      </footer>
+      </footer>`}
     </div>`;
 }
 
@@ -1570,11 +1596,25 @@ function measureLanding() {
   render();
 }
 
-function undoStroke() {
+// Done: lock the current hole and go on to the next one, or to the scorecard after the last hole.
+function doneHole() {
   const round = getRound();
-  const list = holeList(round, round.currentHole);
-  if (!list.length) return;
-  list.pop();
+  const hole = round.currentHole;
+  const last = (round.startHole || 1) + round.holeCount - 1;
+  round.locked = (Array.isArray(round.locked) ? round.locked : []).filter(h => h !== hole).concat(hole);
+  if (hole < last) {
+    round.currentHole = hole + 1;
+  } else {
+    view = 'card'; cardTab = 'score'; cardScroll = { score: 0, clubs: 0 };
+    cardOpen = new Set(); cardOpenClubs = new Set();
+  }
+  saveDb();
+  render();
+}
+
+function unlockHole() {
+  const round = getRound();
+  round.locked = (round.locked || []).filter(h => h !== round.currentHole);
   saveDb();
   render();
 }
@@ -1767,7 +1807,7 @@ app.addEventListener('click', event => {
     case 'prev-hole': changeHole(-1); break;
     case 'next-hole': changeHole(1); break;
     case 'add': addStroke(); break;
-    case 'undo': undoStroke(); break;
+    case 'done-hole': doneHole(); break;
     case 'measure': measureLanding(); break;
     case 'pick-club':
       db.club = el.dataset.club;
@@ -1861,6 +1901,71 @@ app.addEventListener('input', event => {
     document.head.append(touchIcon, favicon);
   } catch (err) { /* the icon is optional */ }
 })();
+
+/* ---------- Unlock slider ---------- */
+
+// The knob must be dragged all the way to the right; letting go earlier springs it back and nothing happens.
+// From the keyboard, arrow keys move it in steps and End jumps to the end.
+let unlockDrag = null;  // { id, startX, max, x }
+
+function unlockMax(knob) {
+  const track = knob.parentElement;
+  const pad = parseFloat(getComputedStyle(track).paddingLeft) || 0;
+  return track.clientWidth - knob.offsetWidth - 2 * pad;
+}
+function moveKnob(knob, x, max) {
+  knob.style.transform = `translateX(${x}px)`;
+  knob.setAttribute('aria-valuenow', String(Math.round(x / max * 100)));
+  const label = knob.parentElement.querySelector('.unlock-label');
+  if (label) label.style.opacity = String(Math.max(0, 1 - x / max * 1.4));
+}
+function releaseKnob(knob, x, max) {
+  if (x >= max - 2) { unlockHole(); return; }
+  knob.classList.add('settle');
+  moveKnob(knob, 0, max);
+}
+
+app.addEventListener('pointerdown', event => {
+  const knob = event.target.closest('.unlock-knob');
+  if (!knob) return;
+  event.preventDefault();
+  try { knob.setPointerCapture(event.pointerId); } catch (err) { /* capture is a nicety; dragging works without it */ }
+  knob.classList.remove('settle');
+  unlockDrag = { id: event.pointerId, startX: event.clientX, max: unlockMax(knob), x: 0 };
+});
+app.addEventListener('pointermove', event => {
+  if (!unlockDrag || event.pointerId !== unlockDrag.id) return;
+  const knob = event.target.closest('.unlock-knob');
+  if (!knob) return;
+  unlockDrag.x = Math.max(0, Math.min(unlockDrag.max, event.clientX - unlockDrag.startX));
+  moveKnob(knob, unlockDrag.x, unlockDrag.max);
+});
+function endUnlockDrag(event) {
+  if (!unlockDrag || event.pointerId !== unlockDrag.id) return;
+  const knob = event.target.closest('.unlock-knob');
+  const { x, max } = unlockDrag;
+  unlockDrag = null;
+  if (knob) releaseKnob(knob, event.type === 'pointercancel' ? 0 : x, max);
+}
+app.addEventListener('pointerup', endUnlockDrag);
+app.addEventListener('pointercancel', endUnlockDrag);
+
+app.addEventListener('keydown', event => {
+  const knob = event.target.closest && event.target.closest('.unlock-knob');
+  if (!knob) return;
+  const max = unlockMax(knob);
+  const now = Number(knob.getAttribute('aria-valuenow')) / 100 * max;
+  let x = null;
+  if (event.key === 'ArrowRight') x = Math.min(max, now + max / 4);
+  else if (event.key === 'ArrowLeft') x = Math.max(0, now - max / 4);
+  else if (event.key === 'End') x = max;
+  else if (event.key === 'Home') x = 0;
+  if (x === null) return;
+  event.preventDefault();
+  knob.classList.remove('settle');
+  moveKnob(knob, x, max);
+  if (x >= max - 2) unlockHole();
+});
 
 /* ---------- Pull to refresh and updates ---------- */
 
