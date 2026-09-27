@@ -407,7 +407,8 @@ function saveDb() {
 let db = loadDb();
 let view = 'list';       // 'list' | 'round' | 'card' | 'courses' | 'course-edit'
 let roundId = null;
-let sheet = null;        // null | { type: 'new' | 'bag' | 'import' } | { type: 'stroke', index }
+let sheet = null;        // null | { type: 'new' | 'bag' | 'import' } | { type: 'stroke', index, draft? }
+                         // draft = { club, mods: { chip, … }, note }: unsaved edits until Save
 let draft = null;        // course being edited: { id, name, count, all: [{ par, index }] x18,
                          //   tees: [{ id, name, holes: [{ length, par, index }] x18, overrides }], teeIdx }
 let cardTab = 'score';   // scorecard tab: 'score' | 'clubs'
@@ -1452,7 +1453,7 @@ function renderSheet() {
   const stroke = list[sheet.index];
   if (!stroke) return '';
   // Show the bag clubs, plus this stroke's club if it has since been removed from the bag, plus Penalty.
-  const options = CLUBS.filter(c => db.activeClubs.includes(c) || c === stroke.club).concat(PENALTY);
+  const options = CLUBS.filter(c => db.activeClubs.includes(c) || c === stroke.club || (sheet.draft && c === sheet.draft.club)).concat(PENALTY);
   // A locked hole's strokes can only be read, including the comment.
   if (isLocked(round, round.currentHole)) {
     const mods = MODS.filter(m => stroke[m.key]).map(m => m.key);
@@ -1466,22 +1467,23 @@ function renderSheet() {
       <button class="link" data-action="close-sheet">Close</button>
     </div>`;
   }
-  const modToggles = stroke.club !== PENALTY
-    ? `<p class="hint">Shot type and lie</p><div class="sheet-mods">${modsHtml(k => !!stroke[k], 'toggle-stroke-mod')}</div>`
-    : '';
+  const draft = sheet.draft;
+  // Penalty strokes take no modifiers; the buttons stay in place but are disabled, as on the round screen.
+  const modToggles = `<p class="hint">Shot type and lie</p><div class="sheet-mods">${modsHtml(k => !!draft.mods[k], 'toggle-stroke-mod', draft.club === PENALTY)}</div>`;
   return `
     <div class="backdrop" data-action="close-sheet"></div>
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Edit stroke">
       <h2>Stroke ${sheet.index + 1} on hole ${round.currentHole}</h2>
       <p class="hint">Choose club</p>
-      <div class="chips">${chipsHtml(options, stroke.club, 'set-club')}</div>
+      <div class="chips">${chipsHtml(options, draft.club, 'set-club')}</div>
       ${modToggles}
       <label class="field stroke-note-field"><span>Comment (optional)</span>
         <textarea class="json-box note-box stroke-note-box" id="stroke-note" maxlength="${NOTE_MAX.stroke}" rows="2"
-                  placeholder="e.g. misread the wind">${esc(stroke.note || '')}</textarea>
+                  placeholder="e.g. misread the wind">${esc(draft.note)}</textarea>
       </label>
-      <button class="danger" data-action="delete-stroke">Delete stroke</button>
-      <button class="link" data-action="close-sheet">Done</button>
+      <button class="primary" data-action="save-stroke">Save</button>
+      <button class="danger" data-action="delete-stroke" style="margin-top:10px">Delete stroke</button>
+      <button class="link" data-action="close-sheet">Cancel</button>
     </div>`;
 }
 
@@ -1890,6 +1892,24 @@ function measureLanding() {
   render();
 }
 
+// Writes the edit-stroke draft (club, modifiers, comment) to the stroke. Only those fields change, so the stroke's
+// position and any live distance measurement are untouched. Locked holes are left alone.
+function saveStrokeDraft() {
+  const round = getRound();
+  if (!sheet || !sheet.draft || isLocked(round, round.currentHole)) return;
+  const stroke = holeList(round, round.currentHole)[sheet.index];
+  if (stroke) {
+    const { club, mods, note } = sheet.draft;
+    stroke.club = club;
+    MODS.forEach(m => { if (mods[m.key] && club !== PENALTY) stroke[m.key] = true; else delete stroke[m.key]; });
+    const text = note.trim().slice(0, NOTE_MAX.stroke);
+    if (text) stroke.note = text; else delete stroke.note;
+  }
+  sheet = null;
+  saveDb();
+  render();
+}
+
 // Saves the open note sheet's text; an empty note is removed. Locked holes' notes are left alone.
 function saveNote(value) {
   const round = getRound();
@@ -2106,15 +2126,10 @@ app.addEventListener('click', event => {
       el.setAttribute('aria-pressed', String(on));
       break;
     }
-    case 'toggle-stroke-mod': {
-      const list = holeList(round, round.currentHole);
-      const stroke = list[sheet.index];
-      const key = el.dataset.mod;
-      if (stroke) { if (stroke[key]) delete stroke[key]; else stroke[key] = true; }
-      saveDb();
-      render();
+    case 'toggle-stroke-mod':
+      if (sheet && sheet.draft) { sheet.draft.mods[el.dataset.mod] = !sheet.draft.mods[el.dataset.mod]; render(); }
       break;
-    }
+    case 'save-stroke': saveStrokeDraft(); break;
     case 'toggle-club': toggleClub(el.dataset.club); break;
     case 'back': closeRound(); break;
     case 'scorecard':
@@ -2172,22 +2187,22 @@ app.addEventListener('click', event => {
       // Penalty strokes take no modifiers, so the buttons are disabled while Penalty is selected.
       app.querySelectorAll('.dock .modbtn').forEach(btn => { btn.disabled = db.club === PENALTY; });
       break;
-    case 'edit-stroke':
+    case 'edit-stroke': {
       if (isLocked(round, round.currentHole)) break;  // locked holes are read-only until unlocked
-      sheet = { type: 'stroke', index: Number(el.dataset.index) }; render(); break;
-    case 'view-stroke': sheet = { type: 'stroke', index: Number(el.dataset.index) }; render(); break;
-    case 'set-club': {
-      const list = holeList(round, round.currentHole);
-      const stroke = list[sheet.index];
-      if (stroke) {
-        stroke.club = el.dataset.club;
-        if (stroke.club === PENALTY) MODS.forEach(m => { delete stroke[m.key]; });
-      }
-      sheet = null;
-      saveDb();
+      const index = Number(el.dataset.index);
+      const stroke = holeList(round, round.currentHole)[index];
+      if (!stroke) break;
+      // Edits go into a draft; nothing is written to the stroke until Save.
+      const mods = {};
+      MODS.forEach(m => { mods[m.key] = !!stroke[m.key]; });
+      sheet = { type: 'stroke', index, draft: { club: stroke.club, mods, note: stroke.note || '' } };
       render();
       break;
     }
+    case 'view-stroke': sheet = { type: 'stroke', index: Number(el.dataset.index) }; render(); break;
+    case 'set-club':
+      if (sheet && sheet.draft) { sheet.draft.club = el.dataset.club; render(); }
+      break;
     case 'delete-stroke': {
       const list = holeList(round, round.currentHole);
       list.splice(sheet.index, 1);
@@ -2219,17 +2234,9 @@ app.addEventListener('change', event => {
   }
 });
 
-// A stroke's comment is saved as you type, so changing club or lie in the same sheet never loses it.
-// Only the comment changes; the stroke's position and any live distance measurement are untouched.
+// Typing a stroke comment only updates the sheet's draft, so re-rendering the sheet (club or lie changes) keeps it.
 app.addEventListener('input', event => {
-  if (event.target.id !== 'stroke-note' || !sheet || sheet.type !== 'stroke') return;
-  const round = getRound();
-  if (!round || isLocked(round, round.currentHole)) return;
-  const stroke = holeList(round, round.currentHole)[sheet.index];
-  if (!stroke) return;
-  const text = event.target.value.trim().slice(0, NOTE_MAX.stroke);
-  if (text) stroke.note = text; else delete stroke.note;
-  saveDb();
+  if (event.target.id === 'stroke-note' && sheet && sheet.draft) sheet.draft.note = event.target.value;
 });
 
 // Number fields in the course editor: keep digits only and update the draft as you type.
