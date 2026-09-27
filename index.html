@@ -1928,21 +1928,9 @@ function saveNote(value) {
   render();
 }
 
-// Test: focus the note field only once the sheet has finished sliding in, so the layout is still when the
-// keyboard decides where to go. The timeout covers the case where no animationend fires (e.g. reduced motion).
 function focusNote() {
   const input = document.getElementById('note-text');
-  const panel = app.querySelector('.sheet');
-  if (!input || !panel) return;
-  let done = false;
-  const focus = () => {
-    if (done || !input.isConnected) return;
-    done = true;
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-  };
-  panel.addEventListener('animationend', focus, { once: true });
-  setTimeout(focus, 400);
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
 
 // Done: lock the current hole and go on to the next one, or to the scorecard after the last hole.
