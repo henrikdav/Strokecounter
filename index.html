@@ -64,6 +64,8 @@
   .step:disabled { opacity: .28; }
   .holetitle { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
   .holetitle small { font-size: 14px; font-weight: 600; color: var(--mute); margin-left: 6px; letter-spacing: 0; }
+  .holetitle { text-align: center; }
+  .hole-tee { display: block; margin-top: -2px; font-size: 14px; font-weight: 700; color: var(--mute); letter-spacing: 0; }
 
   .counter { text-align: center; padding: 0 14px 8px; }
   .holeinfo { display: flex; justify-content: center; align-items: center; gap: 14px; font-size: 17px; font-weight: 700; min-height: 30px; }
@@ -195,11 +197,26 @@
   .len, .idx { width: 100%; min-height: 44px; border: 2px solid var(--line); border-radius: 10px; padding: 0 10px; font: inherit;
          font-size: 17px; text-align: right; background: var(--paper); color: var(--ink); font-variant-numeric: tabular-nums; }
   .totals { margin: 14px 0 0; font-weight: 700; font-size: 16px; }
+  .tee-label { margin: 18px 0 6px; font-size: 14px; color: var(--mute); font-weight: 600; }
+  .tee-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tee-tabs .modbtn { min-height: 38px; padding: 0 14px; }
+  .tee-add { border-style: dashed; background: transparent; color: var(--mute); }
+  .tee-edit { margin-top: 12px; }
+  .tee-edit .inline-btn { display: block; text-align: left; }
+  .inline-btn.tee-remove { color: var(--flag); }
+  .hole-block { border-bottom: 1px solid var(--line); }
+  .hole-block .hole-row { border-bottom: 0; }
+  .tee-over { display: flex; align-items: center; gap: 10px; padding: 0 0 8px 34px; font-size: 13px; color: var(--mute); font-weight: 600; }
+  .tee-over label { display: flex; align-items: center; gap: 6px; }
+  .tee-over input { width: 46px; min-height: 36px; border: 2px dashed var(--line); border-radius: 8px; padding: 0 6px; font: inherit;
+                    font-size: 15px; text-align: right; background: var(--paper); color: var(--ink); }
+  .tee-over-hint { margin-top: 4px; }
   .delete-link { margin-top: 18px; }
   .idx { padding: 0 6px; }
   .row2 { display: flex; gap: 10px; margin-top: 12px; }
   .row2 .field { flex: 1; min-width: 0; }
   .row2 .field + .field { margin-top: 0; }
+  .seg + .tee-field { margin-top: 14px; }
   .extra { border: 2px solid var(--fairway); border-radius: 999px; padding: 0 10px; font-size: 15px; color: var(--fairway-deep); }
   .pills { display: flex; align-items: center; margin: 0 14px 6px; padding: 3px; border-radius: 999px; background: var(--paper); border: 2px solid var(--line); }
   .pill { flex: 1; min-height: 38px; margin: 0; padding: 0 10px; border: 0; border-radius: 999px; background: none; font-weight: 700; color: var(--mute); }
@@ -305,13 +322,17 @@ const FIX_MAX_AGE_MS = 30000;
 
 /*
   db = {
-    courses: [{ id, name, holes: [{ par, length, index }, ...] }],   // 9 or 18 holes, length in meters, index 1-18 (or null)
+    courses: [{ id, name,
+                holes: [{ par, index }, ...],                  // 9 or 18 holes: par and index (1-18 or null) for all tees
+                tees: [{ id, name, holes: [{ length, par?, index? }, ...] }] }],  // length in meters; par/index only
+                                                                // when this tee differs from the course
     rounds: [{ id, name, createdAt, holeCount, startHole, sourceHoleCount, currentHole,
                courseId,                                      // null when played without a course
                holeData: { "1": { par, length, index }, ... }, // copied from the course when the round starts
                handicap: { base, allowance } | null,           // playing handicap from the slope table + adjustment %
                holes: { "1": [stroke, ...], ... },           // keyed by real hole number (startHole ...)
-               locked: [1, 2, ...] }],                        // holes finished with Done; their controls are locked
+               locked: [1, 2, ...],                           // holes finished with Done; their controls are locked
+               tee }],                                        // name of the tee played, missing for older rounds
     allowance: 100,            // last used handicap adjustment %
     activeClubs: [...],        // clubs in the bag, shown when adding a stroke
     club: 'Driver',            // club selected for the next stroke
@@ -364,7 +385,8 @@ let db = loadDb();
 let view = 'list';       // 'list' | 'round' | 'card' | 'courses' | 'course-edit'
 let roundId = null;
 let sheet = null;        // null | { type: 'new' | 'bag' | 'import' } | { type: 'stroke', index }
-let draft = null;        // course being created or edited: { id, name, count, all: [{ par, length, index }] x18 }
+let draft = null;        // course being edited: { id, name, count, all: [{ par, index }] x18,
+                         //   tees: [{ id, name, holes: [{ length, par, index }] x18, overrides }], teeIdx }
 let cardTab = 'score';   // scorecard tab: 'score' | 'clubs'
 let cardScroll = { score: 0, clubs: 0 };  // scroll position per tab, kept while switching
 let cardOpen = new Set();  // hole numbers expanded to show their shots on the scorecard
@@ -482,6 +504,28 @@ function holeSuffix(round) {
   if ((round.startHole || 1) > 1) return 'back 9';
   if (round.holeCount === 9 && round.sourceHoleCount === 18) return 'front 9';
   return 'of ' + round.holeCount;
+}
+
+// Converts a course from the old shape ({ holes: [{ par, length, index }] }) to one with a single "Standard" tee.
+// Returns true when the course was changed.
+function migrateCourse(course) {
+  if (Array.isArray(course.tees) && course.tees.length) return false;
+  const old = course.holes;
+  course.holes = old.map(h => ({ par: h.par, index: Number.isInteger(h.index) ? h.index : null }));
+  course.tees = [{ id: newId(), name: 'Standard', holes: old.map(h => ({ length: Number.isFinite(h.length) ? h.length : null })) }];
+  return true;
+}
+
+// The holes as played from one tee: the tee's length, and its own par/index where set, otherwise the course's.
+function teeHoles(course, tee) {
+  return course.holes.map((h, i) => {
+    const t = (tee && tee.holes[i]) || {};
+    return {
+      par: Number.isInteger(t.par) ? t.par : h.par,
+      length: Number.isFinite(t.length) ? t.length : null,
+      index: Number.isInteger(t.index) ? t.index : (Number.isInteger(h.index) ? h.index : null)
+    };
+  });
 }
 
 function courseTotals(holes) {
@@ -704,12 +748,13 @@ function renderList() {
 function renderCourses() {
   const courses = [...db.courses].sort((a, b) => a.name.localeCompare(b.name));
   const items = courses.map(c => {
-    const totals = courseTotals(c.holes);
+    const totals = courseTotals(teeHoles(c, c.tees[0]));
+    const teeText = c.tees.length === 1 ? (totals.meters ? ', ' + fmtMeters(totals.meters) : '') : `, ${c.tees.map(t => t.name).join(', ')}`;
     return `
       <li class="round-item">
         <button class="round-open" data-action="edit-course" data-id="${esc(c.id)}">
           <span class="rn">${esc(c.name)}</span>
-          <span class="rm">${c.holes.length} holes${totals.meters ? ', ' + fmtMeters(totals.meters) : ''}</span>
+          <span class="rm">${c.holes.length} holes${esc(teeText)}</span>
           <span class="rt"><b>${totals.par}</b>par</span>
         </button>
       </li>`;
@@ -735,26 +780,42 @@ function renderCourses() {
 }
 
 function renderCourseEdit() {
-  const rows = draft.all.slice(0, draft.count).map((h, i) => `
-    <div class="hole-row">
-      <span class="hn">${i + 1}</span>
-      <div class="pars" role="group" aria-label="Par for hole ${i + 1}">
-        ${PARS.map(p => `<button class="par-btn${h.par === p ? ' on' : ''}" data-action="set-par" data-i="${i}" data-par="${p}">${p}</button>`).join('')}
+  const tee = draft.tees[draft.teeIdx];
+  const blank = v => (v === null || v === undefined ? '' : v);
+  const rows = draft.all.slice(0, draft.count).map((h, i) => {
+    const t = tee.holes[i];
+    return `
+    <div class="hole-block">
+      <div class="hole-row">
+        <span class="hn">${i + 1}</span>
+        <div class="pars" role="group" aria-label="Par for hole ${i + 1}">
+          ${PARS.map(p => `<button class="par-btn${h.par === p ? ' on' : ''}" data-action="set-par" data-i="${i}" data-par="${p}">${p}</button>`).join('')}
+        </div>
+        <input class="len" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="m" data-i="${i}"
+               value="${blank(t.length)}" autocomplete="off" aria-label="Length of hole ${i + 1} from ${esc(tee.name)} in meters">
+        <input class="idx" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="1–18" data-i="${i}"
+               value="${blank(h.index)}" autocomplete="off" aria-label="Index of hole ${i + 1}">
       </div>
-      <input class="len" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="m" data-i="${i}"
-             value="${h.length === null || h.length === undefined ? '' : h.length}" autocomplete="off"
-             aria-label="Length of hole ${i + 1} in meters">
-      <input class="idx" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="1–18" data-i="${i}"
-             value="${h.index === null || h.index === undefined ? '' : h.index}" autocomplete="off"
-             aria-label="Index of hole ${i + 1}">
-    </div>`).join('');
+      ${tee.overrides ? `
+      <div class="tee-over">
+        <span>On ${esc(tee.name)}:</span>
+        <label>Par <input class="opar" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-i="${i}"
+               placeholder="${h.par}" value="${blank(t.par)}" autocomplete="off" aria-label="Par of hole ${i + 1} from ${esc(tee.name)}"></label>
+        <label>Index <input class="oidx" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" data-i="${i}"
+               placeholder="${blank(h.index) || '–'}" value="${blank(t.index)}" autocomplete="off" aria-label="Index of hole ${i + 1} from ${esc(tee.name)}"></label>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+
+  const teeTabs = draft.tees.map((t, i) => `
+          <button class="modbtn tee-tab${i === draft.teeIdx ? ' on' : ''}" data-action="select-tee" data-i="${i}" aria-pressed="${i === draft.teeIdx}">${esc(t.name || 'Tee ' + (i + 1))}</button>`).join('');
 
   return `
     <div class="screen">
       <header class="top">
-        <button class="ghost" data-action="cancel-course">‹ Cancel</button>
+        <button class="ghost side" data-action="cancel-course">‹ Cancel</button>
         <h2>${draft.id ? 'Edit course' : 'New course'}</h2>
-        <span style="width:64px"></span>
+        <span class="side" style="min-width:64px"></span>
       </header>
       <main class="scroll">
         <label class="field"><span>Name</span>
@@ -763,6 +824,22 @@ function renderCourseEdit() {
         <div class="seg" role="radiogroup" aria-label="Number of holes">
           <label><input type="radio" name="course-count" value="18"${draft.count === 18 ? ' checked' : ''}><span>18 holes</span></label>
           <label><input type="radio" name="course-count" value="9"${draft.count === 9 ? ' checked' : ''}><span>9 holes</span></label>
+        </div>
+        <p class="tee-label">Tees</p>
+        <div class="tee-tabs" role="group" aria-label="Tees">${teeTabs}
+          <button class="modbtn tee-add" data-action="add-tee">+ Tee</button>
+        </div>
+        <div class="tee-edit">
+          <label class="field"><span>Tee name</span>
+            <input id="tee-name" type="text" maxlength="24" autocomplete="off" value="${esc(tee.name)}" placeholder="e.g. Gul">
+          </label>
+          <button class="inline-btn" data-action="toggle-tee-overrides">${tee.overrides
+            ? `Use the course's par and index on all holes from ${esc(tee.name)}`
+            : `Set a different par or index from ${esc(tee.name)}`}</button>
+          ${draft.tees.length > 1 ? '<button class="inline-btn tee-remove" data-action="remove-tee">Remove this tee</button>' : ''}
+          <p class="hint tee-over-hint">Par and index are shared by all tees. ${tee.overrides
+            ? `Fill in par or index under a hole only where ${esc(tee.name)} differs; blank uses the course's.`
+            : `Lengths are set per tee.`}</p>
         </div>
         <div class="hole-head"><span>Hole</span><span>Par</span><span>Meters</span><span>Index</span></div>
         ${rows}
@@ -775,9 +852,15 @@ function renderCourseEdit() {
     </div>`;
 }
 
+// Totals for the tee being edited, using its own par where it has one.
 function draftTotalsText() {
-  const totals = courseTotals(draft.all.slice(0, draft.count));
-  return `Par ${totals.par}` + (totals.meters ? ', ' + fmtMeters(totals.meters) : '');
+  const tee = draft.tees[draft.teeIdx];
+  const holes = draft.all.slice(0, draft.count).map((h, i) => ({
+    par: Number.isInteger(tee.holes[i].par) ? tee.holes[i].par : h.par,
+    length: tee.holes[i].length
+  }));
+  const totals = courseTotals(holes);
+  return `${tee.name || 'This tee'}: par ${totals.par}` + (totals.meters ? ', ' + fmtMeters(totals.meters) : '');
 }
 
 function renderRound() {
@@ -841,7 +924,7 @@ function renderRound() {
       </header>
       <div class="holebar">
         <button class="step" data-action="prev-hole" ${hole <= firstHole ? 'disabled' : ''} aria-label="Previous hole">‹</button>
-        <div class="holetitle">Hole ${hole}<small>${holeSuffix(round)}</small></div>
+        <div class="holetitle">Hole ${hole}<small>${holeSuffix(round)}</small>${round.tee ? `<span class="hole-tee">${esc(round.tee)} tee</span>` : ''}</div>
         <button class="step" data-action="next-hole" ${hole >= lastHole ? 'disabled' : ''} aria-label="Next hole">›</button>
       </div>
       <section class="counter" aria-live="polite">
@@ -892,6 +975,7 @@ function roundExportText(round) {
   // An unnamed round is labelled by its date, which already has its own line.
   const lines = round.name ? [`Round: ${round.name}`] : [];
   if (course && course.name !== round.name) lines.push(`Course: ${course.name}`);
+  if (round.tee) lines.push(`Tee: ${round.tee}`);
   lines.push(`Date: ${exportDateFmt.format(round.createdAt)}`);
   const suffix = holeSuffix(round);
   lines.push(`Holes: ${round.holeCount}${suffix.startsWith('of') ? '' : ` (${suffix})`}, ${played} played`);
@@ -1150,7 +1234,7 @@ function renderCard() {
         <h2>Scorecard</h2>
         <button class="ghost side right" data-action="export-round">Export</button>
       </header>
-      <p class="card-title card-head">${esc(roundLabel(round))}<small>${esc(dateFmt.format(round.createdAt))} ${esc(timeFmt.format(round.createdAt))}</small></p>
+      <p class="card-title card-head">${esc(roundLabel(round))}<small>${round.tee ? `${esc(round.tee)} tee · ` : ''}${esc(dateFmt.format(round.createdAt))} ${esc(timeFmt.format(round.createdAt))}</small></p>
       ${tabBar}
       <main class="scroll">
         ${cardTab === 'clubs' ? clubsTab : `
@@ -1199,6 +1283,9 @@ function renderSheet() {
           <label><input type="radio" name="nine" value="front" checked><span>Front 9 (1–9)</span></label>
           <label><input type="radio" name="nine" value="back"><span>Back 9 (10–18)</span></label>
         </div>
+        <label class="field tee-field" id="tee-field" hidden><span>Tee</span>
+          <select id="round-tee"></select>
+        </label>
         <div class="row2" id="hcp-row" hidden>
           <label class="field"><span>Playing handicap</span>
             <input id="round-hcp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="Optional" autocomplete="off">
@@ -1219,6 +1306,7 @@ function renderSheet() {
       <div class="sheet" role="dialog" aria-modal="true" aria-label="Import courses">
         <h2>Import from JSON</h2>
         <p class="hint">Paste one course or a list of courses. Each course has a name and 9 or 18 holes with par and length in meters, for example <code>{"name":"My Course","holes":[{"par":4,"length":352,"index":7}, …]}</code>. Index (1–18) is optional.</p>
+        <p class="hint">For several tees, give the holes par and index, and list the tees with their lengths. A tee can also set its own par or index on a hole: <code>{"name":"My Course","holes":[{"par":4,"index":7}, …],"tees":[{"name":"Gul","holes":[{"length":352}, …]},{"name":"Röd","holes":[{"length":301,"par":5}, …]}]}</code></p>
         <textarea class="json-box" id="import-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
         <button class="primary" data-action="do-import">Import</button>
         <button class="link" data-action="close-sheet">Cancel</button>
@@ -1335,7 +1423,10 @@ function readNewRoundSelection() {
   let holeCount = holesInput ? Number(holesInput.value) || 18 : 18;
   if (course && course.holes.length === 9) holeCount = 9;
   const backNine = !!course && course.holes.length === 18 && holeCount === 9 && !!nineInput && nineInput.value === 'back';
-  return { course, holeCount, startHole: backNine ? 10 : 1 };
+  // With a single tee there is nothing to choose; otherwise use the tee picked in the list.
+  const teeSelect = document.getElementById('round-tee');
+  const tee = course ? (course.tees.find(t => teeSelect && t.id === teeSelect.value) || course.tees[0]) : null;
+  return { course, tee, holeCount, startHole: backNine ? 10 : 1 };
 }
 
 // Keeps the "New round" sheet consistent with the selected course:
@@ -1361,28 +1452,43 @@ function syncNewRoundForm() {
   }
   nineSeg.hidden = !(selected && selected.holes.length === 18 && radio9.checked);
 
+  // Tee choice, only when the course has more than one tee.
+  const teeField = document.getElementById('tee-field');
+  const teeSelect = document.getElementById('round-tee');
+  if (teeField && teeSelect) {
+    const tees = selected ? selected.tees : [];
+    const keep = teeSelect.value;
+    if (teeSelect.dataset.course !== (selected ? selected.id : '')) {
+      teeSelect.innerHTML = tees.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
+      teeSelect.dataset.course = selected ? selected.id : '';
+      if (tees.some(t => t.id === keep)) teeSelect.value = keep;
+    }
+    teeField.hidden = tees.length < 2;
+  }
+
   const hcpRow = document.getElementById('hcp-row');
   const hcpHint = document.getElementById('hcp-hint');
   if (hcpRow && hcpHint) {
-    const { course, holeCount, startHole } = readNewRoundSelection();
+    const { course, tee, holeCount, startHole } = readNewRoundSelection();
     hcpRow.hidden = !course;
     hcpHint.hidden = !course;
     if (course) {
-      const played = course.holes.slice(startHole - 1, startHole - 1 + holeCount);
+      const played = teeHoles(course, tee).slice(startHole - 1, startHole - 1 + holeCount);
       hcpHint.textContent = played.every(h => Number.isInteger(h.index)) ? HCP_HINT : NO_INDEX_HINT;
     }
   }
 }
 
 function createRound() {
-  const { course, holeCount, startHole } = readNewRoundSelection();
+  const { course, tee, holeCount, startHole } = readNewRoundSelection();
   const nameInput = document.getElementById('round-name');
 
-  // Copy par, length and index so later edits to the course don't change this round.
+  // Copy par, length and index as played from the chosen tee, so later edits to the course don't change this round.
   const holeData = {};
   if (course) {
+    const resolved = teeHoles(course, tee);
     for (let i = 0; i < holeCount; i++) {
-      const hole = course.holes[startHole - 1 + i];
+      const hole = resolved[startHole - 1 + i];
       if (hole) holeData[startHole + i] = { par: hole.par, length: hole.length, index: Number.isInteger(hole.index) ? hole.index : null };
     }
   }
@@ -1408,6 +1514,7 @@ function createRound() {
     handicap,
     holes: {}
   };
+  if (tee) round.tee = tee.name;
   db.rounds.push(round);
   openRound(round.id);
 }
@@ -1415,11 +1522,14 @@ function createRound() {
 /* ---------- Course editor and import ---------- */
 
 function emptyHoles() {
-  return Array.from({ length: 18 }, () => ({ par: 4, length: null, index: null }));
+  return Array.from({ length: 18 }, () => ({ par: 4, index: null }));
+}
+function emptyTee(name) {
+  return { id: newId(), name, holes: Array.from({ length: 18 }, () => ({ length: null, par: null, index: null })), overrides: false };
 }
 
 function startNewCourse() {
-  draft = { id: null, name: '', count: 18, all: emptyHoles() };
+  draft = { id: null, name: '', count: 18, all: emptyHoles(), tees: [emptyTee('Standard')], teeIdx: 0 };
   view = 'course-edit';
   render();
 }
@@ -1428,10 +1538,31 @@ function startEditCourse(id) {
   const course = db.courses.find(c => c.id === id);
   if (!course) return;
   const all = emptyHoles();
-  course.holes.forEach((h, i) => { all[i] = { par: h.par, length: h.length, index: Number.isInteger(h.index) ? h.index : null }; });
-  draft = { id: course.id, name: course.name, count: course.holes.length, all };
+  course.holes.forEach((h, i) => { all[i] = { par: h.par, index: Number.isInteger(h.index) ? h.index : null }; });
+  const tees = course.tees.map(t => {
+    const tee = emptyTee(t.name);
+    tee.id = t.id;
+    t.holes.forEach((h, i) => {
+      tee.holes[i] = {
+        length: Number.isFinite(h.length) ? h.length : null,
+        par: Number.isInteger(h.par) ? h.par : null,
+        index: Number.isInteger(h.index) ? h.index : null
+      };
+    });
+    tee.overrides = tee.holes.some(h => h.par !== null || h.index !== null);
+    return tee;
+  });
+  draft = { id: course.id, name: course.name, count: course.holes.length, all, tees, teeIdx: 0 };
   view = 'course-edit';
   render();
+}
+
+// Keeps typed names in the draft before the editor is re-rendered.
+function keepDraftNames() {
+  const nameInput = document.getElementById('course-name');
+  if (nameInput) draft.name = nameInput.value;
+  const teeInput = document.getElementById('tee-name');
+  if (teeInput) draft.tees[draft.teeIdx].name = teeInput.value.trim();
 }
 
 function saveCourse() {
@@ -1442,22 +1573,58 @@ function saveCourse() {
     if (nameInput) nameInput.focus();
     return;
   }
-  const indices = draft.all.slice(0, draft.count).map(h => h.index).filter(v => v !== null && v !== undefined);
-  if (indices.some(v => !Number.isInteger(v) || v < 1 || v > 18)) {
-    toast('Hole index must be between 1 and 18');
+  keepDraftNames();
+  const n = draft.count;
+  const names = draft.tees.map(t => t.name.trim());
+  const badName = names.findIndex(v => !v);
+  if (badName >= 0) {
+    draft.teeIdx = badName; render();
+    toast('Give every tee a name');
     return;
   }
-  if (new Set(indices).size !== indices.length) {
-    toast('Each hole index can only be used once');
+  if (new Set(names.map(v => v.toLowerCase())).size !== names.length) {
+    toast('Each tee needs its own name');
     return;
   }
-  const holes = draft.all.slice(0, draft.count).map(h => ({ par: h.par, length: h.length, index: h.index === undefined ? null : h.index }));
+  // Check the indexes as each tee will actually be played, including its own overrides.
+  for (let ti = 0; ti < draft.tees.length; ti++) {
+    const tee = draft.tees[ti];
+    const pars = tee.holes.slice(0, n).map(h => h.par).filter(v => v !== null);
+    if (pars.some(v => !PARS.includes(v))) {
+      draft.teeIdx = ti; render();
+      toast(`Par must be ${PARS[0]}–${PARS[PARS.length - 1]} (${tee.name})`);
+      return;
+    }
+    const indices = draft.all.slice(0, n).map((h, i) => tee.holes[i].index !== null ? tee.holes[i].index : h.index).filter(v => v !== null);
+    if (indices.some(v => !Number.isInteger(v) || v < 1 || v > 18)) {
+      draft.teeIdx = ti; render();
+      toast('Hole index must be between 1 and 18');
+      return;
+    }
+    if (new Set(indices).size !== indices.length) {
+      draft.teeIdx = ti; render();
+      toast(draft.tees.length > 1 ? `Each hole index can only be used once (${tee.name})` : 'Each hole index can only be used once');
+      return;
+    }
+  }
+  const holes = draft.all.slice(0, n).map(h => ({ par: h.par, index: h.index === undefined ? null : h.index }));
+  const tees = draft.tees.map((t, ti) => ({
+    id: t.id,
+    name: names[ti],
+    holes: t.holes.slice(0, n).map(h => {
+      const out = { length: h.length };
+      if (h.par !== null) out.par = h.par;
+      if (h.index !== null) out.index = h.index;
+      return out;
+    })
+  }));
   const existing = draft.id ? db.courses.find(c => c.id === draft.id) : null;
   if (existing) {
     existing.name = name;
     existing.holes = holes;
+    existing.tees = tees;
   } else {
-    db.courses.push({ id: newId(), name, holes });
+    db.courses.push({ id: newId(), name, holes, tees });
   }
   saveDb();
   draft = null;
@@ -1480,30 +1647,56 @@ function updateDraftTotals() {
   if (el && draft) el.textContent = draftTotalsText();
 }
 
-// Validates one imported course object. Returns a course or null.
+// Validates one imported course. Accepts a single flat list of holes with par, length and index (one tee,
+// "Standard"), or course holes with par and index plus a list of tees with lengths and optional par/index.
+// Returns a course or null.
 function parseCourse(item) {
   if (!item || typeof item.name !== 'string' || !item.name.trim() || !Array.isArray(item.holes)) return null;
-  if (item.holes.length !== 9 && item.holes.length !== 18) return null;
+  const n = item.holes.length;
+  if (n !== 9 && n !== 18) return null;
+  const num = (v, ok) => {
+    if (v === undefined || v === null || v === '') return null;
+    const x = Number(v);
+    return ok(x) ? x : undefined;   // undefined marks an invalid value
+  };
+  const isPar = x => Number.isInteger(x) && PARS.includes(x);
+  const isIndex = x => Number.isInteger(x) && x >= 1 && x <= 18;
+  const isLength = x => Number.isFinite(x) && x >= 0 && x <= 1000;
+
   const holes = [];
   for (const h of item.holes) {
-    const par = Number(h && h.par);
-    if (!Number.isInteger(par) || par < PARS[0] || par > PARS[PARS.length - 1]) return null;
-    let length = null;
-    if (h.length !== undefined && h.length !== null && h.length !== '') {
-      length = Number(h.length);
-      if (!Number.isFinite(length) || length < 0 || length > 1000) return null;
-      length = Math.round(length);
-    }
-    let index = null;
-    if (h.index !== undefined && h.index !== null && h.index !== '') {
-      index = Number(h.index);
-      if (!Number.isInteger(index) || index < 1 || index > 18) return null;
-    }
-    holes.push({ par, length, index });
+    const par = num(h && h.par, isPar);
+    const index = num(h && h.index, isIndex);
+    if (par === null || par === undefined || index === undefined) return null;
+    holes.push({ par, index });
   }
-  const used = holes.map(h => h.index).filter(v => v !== null);
-  if (new Set(used).size !== used.length) return null;
-  return { id: newId(), name: item.name.trim().slice(0, 60), holes };
+
+  let teeList = item.tees;
+  if (teeList === undefined) teeList = [{ name: 'Standard', holes: item.holes.map(h => ({ length: h && h.length })) }];
+  if (!Array.isArray(teeList) || !teeList.length) return null;
+  const tees = [];
+  for (const t of teeList) {
+    if (!t || typeof t.name !== 'string' || !t.name.trim() || !Array.isArray(t.holes) || t.holes.length !== n) return null;
+    const teeHolesList = [];
+    for (const h of t.holes) {
+      const length = num(h && h.length, isLength);
+      const par = num(h && h.par, isPar);
+      const index = num(h && h.index, isIndex);
+      if (length === undefined || par === undefined || index === undefined) return null;
+      const out = { length: length === null ? null : Math.round(length) };
+      if (par !== null) out.par = par;
+      if (index !== null) out.index = index;
+      teeHolesList.push(out);
+    }
+    tees.push({ id: newId(), name: t.name.trim().slice(0, 24), holes: teeHolesList });
+  }
+  const course = { id: newId(), name: item.name.trim().slice(0, 60), holes, tees };
+  // Each tee, as played, needs unique indexes.
+  for (const tee of tees) {
+    const used = teeHoles(course, tee).map(h => h.index).filter(v => v !== null);
+    if (new Set(used).size !== used.length) return null;
+  }
+  return course;
 }
 
 function importCourses(text) {
@@ -1742,11 +1935,40 @@ app.addEventListener('click', event => {
     case 'delete-course': deleteCourse(); break;
     case 'set-par': {
       const par = Number(el.dataset.par);
-      draft.all[Number(el.dataset.i)].par = par;
+      const i = Number(el.dataset.i);
+      draft.all[i].par = par;
       el.parentElement.querySelectorAll('.par-btn').forEach(btn => {
         btn.classList.toggle('on', Number(btn.dataset.par) === par);
       });
+      const over = document.querySelector(`.opar[data-i="${i}"]`);
+      if (over) over.placeholder = String(par);   // the tee's par field shows the course par it falls back to
       updateDraftTotals();
+      break;
+    }
+    case 'select-tee': keepDraftNames(); draft.teeIdx = Number(el.dataset.i); render(); break;
+    case 'add-tee':
+      keepDraftNames();
+      draft.tees.push(emptyTee(`Tee ${draft.tees.length + 1}`));
+      draft.teeIdx = draft.tees.length - 1;
+      render();
+      { const input = document.getElementById('tee-name'); if (input) { input.focus(); input.select(); } }
+      break;
+    case 'remove-tee': {
+      keepDraftNames();
+      const tee = draft.tees[draft.teeIdx];
+      if (draft.tees.length < 2 || !confirm(`Remove the tee "${tee.name || 'unnamed'}" from this course? Rounds you have already played are not affected.`)) break;
+      draft.tees.splice(draft.teeIdx, 1);
+      draft.teeIdx = Math.max(0, draft.teeIdx - 1);
+      render();
+      break;
+    }
+    case 'toggle-tee-overrides': {
+      keepDraftNames();
+      const tee = draft.tees[draft.teeIdx];
+      tee.overrides = !tee.overrides;
+      // Turning them off means this tee uses the course's par and index everywhere again.
+      if (!tee.overrides) tee.holes.forEach(h => { h.par = null; h.index = null; });
+      render();
       break;
     }
     case 'import-course': sheet = { type: 'import' }; render(); break;
@@ -1857,11 +2079,10 @@ app.addEventListener('change', event => {
       if (radio) radio.checked = true;
     }
     syncNewRoundForm();
-  } else if (target.name === 'holes' || target.name === 'nine') {
+  } else if (target.name === 'holes' || target.name === 'nine' || target.id === 'round-tee') {
     syncNewRoundForm();
   } else if (target.name === 'course-count' && draft) {
-    const nameInput = document.getElementById('course-name');
-    if (nameInput) draft.name = nameInput.value;
+    keepDraftNames();
     draft.count = Number(target.value);
     render();
   }
@@ -1871,10 +2092,21 @@ app.addEventListener('change', event => {
 app.addEventListener('input', event => {
   const target = event.target;
   if (!draft) return;
-  if (target.classList.contains('len')) {
+  if (target.id === 'tee-name') {
+    // Rename the tee's tab as you type.
+    draft.tees[draft.teeIdx].name = target.value.trim();
+    const tab = document.querySelector(`.tee-tab[data-i="${draft.teeIdx}"]`);
+    if (tab) tab.textContent = target.value.trim() || `Tee ${draft.teeIdx + 1}`;
+    updateDraftTotals();
+  } else if (target.classList.contains('len')) {
     const digits = target.value.replace(/\D/g, '').slice(0, 4);
     if (digits !== target.value) target.value = digits;
-    draft.all[Number(target.dataset.i)].length = digits ? parseInt(digits, 10) : null;
+    draft.tees[draft.teeIdx].holes[Number(target.dataset.i)].length = digits ? parseInt(digits, 10) : null;
+    updateDraftTotals();
+  } else if (target.classList.contains('opar') || target.classList.contains('oidx')) {
+    const digits = target.value.replace(/\D/g, '').slice(0, target.classList.contains('opar') ? 1 : 2);
+    if (digits !== target.value) target.value = digits;
+    draft.tees[draft.teeIdx].holes[Number(target.dataset.i)][target.classList.contains('opar') ? 'par' : 'index'] = digits ? parseInt(digits, 10) : null;
     updateDraftTotals();
   } else if (target.classList.contains('idx')) {
     const digits = target.value.replace(/\D/g, '').slice(0, 2);
@@ -2139,6 +2371,9 @@ async function checkForUpdate() {
 }
 
 /* ---------- Start ---------- */
+
+// Courses saved before tees existed are converted once and saved back, so the rest of the app only sees tees.
+if (db.courses.map(migrateCourse).some(Boolean)) saveDb();
 
 // After a pull-to-refresh, drop the throwaway ?fresh= parameter from the address.
 if (new URLSearchParams(location.search).has('fresh')) {
