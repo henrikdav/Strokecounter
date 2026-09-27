@@ -180,6 +180,7 @@
   .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; max-width: 480px; margin: 0 auto; background: var(--white);
            border-radius: 22px 22px 0 0; padding: 18px 16px calc(14px + var(--safe-b)); max-height: 88%; overflow-y: auto;
            animation: rise .18s ease-out; }
+  .sheet.no-rise { animation: none; }
   .sheet h2 { margin: 0 0 12px; font-size: 22px; font-weight: 800; }
   .hint { margin: 0 0 8px; color: var(--mute); font-size: 14px; }
   .sheet .chips + .hint { margin: -2px 0 14px; }
@@ -1384,9 +1385,11 @@ function renderSheet() {
         <button class="link" data-action="close-sheet">Close</button>
       </div>`;
     }
+    // No slide-in here: the text field is focused in the same tap, and iOS only places the keyboard correctly
+    // when the sheet is already still in its final position.
     return `
       <div class="backdrop" data-action="close-sheet"></div>
-      <div class="sheet" role="dialog" aria-modal="true" aria-label="${title}">
+      <div class="sheet no-rise" role="dialog" aria-modal="true" aria-label="${title}">
         <h2>${title}</h2>
         <p class="hint">${isHole ? 'What happened on this hole? Optional.' : 'How did the round go? Weather, company, anything worth remembering. Optional.'}</p>
         <textarea class="json-box note-box" id="note-text" maxlength="${NOTE_MAX[sheet.scope]}" spellcheck="true">${esc(text)}</textarea>
