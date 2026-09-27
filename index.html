@@ -116,14 +116,31 @@
   .dock .modbtn { min-height: 30px; font-size: 13px; }
   .chiptag { font-size: 11px; font-weight: 700; color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; }
   .actions { display: flex; gap: 10px; }
-  .done { width: 104px; min-height: 76px; border-radius: 20px; border: 2px solid var(--fairway); background: var(--white);
+  .done { width: 88px; min-height: 76px; border-radius: 20px; border: 2px solid var(--fairway); background: var(--white);
           font-size: 20px; font-weight: 800; color: var(--fairway-deep); }
   .add { flex: 1; min-height: 76px; border-radius: 20px; border: 0; background: var(--fairway); color: var(--white);
-         font-size: 30px; font-weight: 800; box-shadow: 0 4px 0 var(--fairway-deep); }
+         font-size: clamp(22px, 7.4vw, 30px); font-weight: 800; white-space: nowrap; box-shadow: 0 4px 0 var(--fairway-deep); }
   .add:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--fairway-deep); }
 
   /* Locked hole: the controls are replaced by a slider that must be dragged all the way across. */
   .unlock-hint { margin: 0 0 10px; text-align: center; color: var(--mute); font-size: 14px; font-weight: 600; }
+  .locked-row { display: flex; align-items: center; gap: 10px; }
+  .locked-row .unlock-hint { flex: 1; }
+  .locked-row .note-btn { width: 48px; min-height: 48px; margin-bottom: 10px; }
+  /* Note button: an outlined page when empty, a filled one when the hole has a note. */
+  .note-btn { width: 48px; min-height: 76px; flex: none; display: grid; place-items: center; border-radius: 16px;
+              border: 2px solid var(--line); background: var(--white); color: var(--mute); }
+  .note-btn svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .note-btn.has { border-color: var(--fairway); color: var(--fairway-deep); background: var(--sand); }
+  .note-btn.has .note-page { fill: var(--white); }
+  .json-box.note-box { min-height: 140px; font: inherit; font-size: 17px; line-height: 1.4; }
+  .note-read { white-space: pre-wrap; margin: 0 0 12px; padding: 12px; border-radius: 12px; background: var(--paper);
+               border: 2px solid var(--line); font-size: 16px; }
+  .round-note { display: flex; align-items: flex-start; gap: 8px; width: calc(100% - 28px); margin: -4px 14px 10px; padding: 8px 10px;
+                border: 0; border-radius: 10px; background: var(--white); color: var(--ink); text-align: left; font-size: 14px; }
+  .round-note span { flex: 1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .round-note svg { flex: none; width: 18px; height: 18px; fill: none; stroke: var(--fairway); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .add-note { display: block; margin: -6px 14px 8px; }
   .unlock { position: relative; height: 68px; padding: 4px; border-radius: 999px; background: var(--paper);
             border: 2px solid var(--line); touch-action: none; -webkit-user-select: none; user-select: none; }
   .unlock-label { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
@@ -332,7 +349,8 @@ const FIX_MAX_AGE_MS = 30000;
                handicap: { base, allowance } | null,           // playing handicap from the slope table + adjustment %
                holes: { "1": [stroke, ...], ... },           // keyed by real hole number (startHole ...)
                locked: [1, 2, ...],                           // holes finished with Done; their controls are locked
-               tee }],                                        // name of the tee played, missing for older rounds
+               tee,                                           // name of the tee played, missing for older rounds
+               notes: { "3": "text" }, note }],               // optional comments per hole and for the round
     allowance: 100,            // last used handicap adjustment %
     activeClubs: [...],        // clubs in the bag, shown when adding a stroke
     club: 'Driver',            // club selected for the next stroke
@@ -492,6 +510,17 @@ function roundTotals(round) {
     if (diff !== null) toPar = (toPar || 0) + diff;
   }
   return { total, played, toPar };
+}
+
+// Optional notes: one per hole (round.notes["3"]) and one for the whole round (round.note). Plain text, capped.
+const NOTE_MAX = { hole: 500, round: 1500 };
+const NOTE_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path class="note-page" d="M5 3.5h10l4 4V20.5H5z"/><path class="note-lines" d="M8.5 11h7M8.5 14.5h7M8.5 18h4.5"/></svg>';
+function holeNote(round, hole) {
+  return (round.notes && round.notes[hole]) || '';
+}
+function noteButton(round, hole) {
+  const has = !!holeNote(round, hole);
+  return `<button class="note-btn${has ? ' has' : ''}" data-action="hole-note" aria-label="${has ? 'Note' : 'Add a note'} for hole ${hole}">${NOTE_ICON}</button>`;
 }
 
 // Holes finished with Done are locked: their stroke controls are replaced by an unlock slider.
@@ -937,7 +966,10 @@ function renderRound() {
       </ol>
       ${locked ? `
       <footer class="dock">
-        <p class="unlock-hint">Hole ${hole} is done and locked. Slide to unlock if you need to change a stroke.</p>
+        <div class="locked-row">
+          <p class="unlock-hint">Hole ${hole} is done and locked. Slide to unlock if you need to change a stroke${holeNote(round, hole) ? ' or the note' : ''}.</p>
+          ${holeNote(round, hole) ? noteButton(round, hole) : ''}
+        </div>
         <div class="unlock">
           <span class="unlock-label" aria-hidden="true">Unlock</span>
           <span class="unlock-knob" role="slider" tabindex="0" aria-label="Slide all the way to unlock hole ${hole}"
@@ -953,6 +985,7 @@ function renderRound() {
         <div class="modrow">${modsHtml(k => db.modFlags.includes(k), 'toggle-mod-flag', db.club === PENALTY)}</div>
         <div class="actions">
           <button class="add" data-action="add">+1 stroke</button>
+          ${noteButton(round, hole)}
           <button class="done" data-action="done-hole">Done</button>
         </div>
       </footer>`}
@@ -965,7 +998,8 @@ const exportDateFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 
 // (club, modifiers, distance), then OUT/IN/Total. No GPS positions or times. Null when nothing is logged yet.
 function roundExportText(round) {
   const numbers = holeNumbers(round);
-  if (!numbers.some(h => (round.holes[h] || []).length)) return null;
+  const hasNotes = !!round.note || numbers.some(h => holeNote(round, h));
+  if (!hasNotes && !numbers.some(h => (round.holes[h] || []).length)) return null;
   const hasInfo = !!round.holeData && Object.keys(round.holeData).length > 0;
   const hasExtras = strokesReceived(round, round.startHole || 1) !== null;
   const scores = numbers.map(h => holeScore(round, h, hasExtras));
@@ -981,6 +1015,7 @@ function roundExportText(round) {
   lines.push(`Holes: ${round.holeCount}${suffix.startsWith('of') ? '' : ` (${suffix})`}, ${played} played`);
   // Only the handicap actually used for extra strokes (after the allowance %), labelled with the holes it covers.
   if (round.handicap) lines.push(`Playing Handicap (${round.holeCount}H): ${adjustedHandicap(round)}`);
+  if (round.note) lines.push(`Round note: ${round.note.replace(/\s*\n\s*/g, ' / ')}`);
   lines.push('');
 
   // "+1 gross, −1 net, 3 points" (only the parts that can be worked out)
@@ -990,7 +1025,8 @@ function roundExportText(round) {
     r.points !== null ? `${r.points} ${r.points === 1 ? 'point' : 'points'}` : null
   ].filter(Boolean).join(', ');
 
-  scores.filter(r => r.played).forEach(r => {
+  // Played holes, plus unplayed holes that have a note.
+  scores.filter(r => r.played || holeNote(round, r.h)).forEach(r => {
     const head = [`Hole ${r.h}`];
     if (r.info) {
       head.push(`Par ${r.info.par}`);
@@ -999,6 +1035,8 @@ function roundExportText(round) {
     }
     if (r.extra) head.push(`${r.extra} extra ${r.extra === 1 ? 'stroke' : 'strokes'}`);
     lines.push(head.join(' · '));
+    const note = holeNote(round, r.h);
+    if (!r.played) { lines.push('  Not played', `  Note: ${note.replace(/\s*\n\s*/g, ' / ')}`, ''); return; }
     const res = results(r);
     lines.push(`  ${r.shown} ${r.shown === 1 ? 'stroke' : 'strokes'}${res ? ` (${res})` : ''}`);
     r.list.forEach((stroke, i) => {
@@ -1007,11 +1045,12 @@ function roundExportText(round) {
       const label = stroke.club === PENALTY ? 'Penalty stroke' : stroke.club;
       lines.push(`  ${i + 1}. ${label}${mods.length ? ` (${mods.join(', ')})` : ''}${d ? ` – ${fmtDist(d)}` : ''}`);
     });
+    if (note) lines.push(`  Note: ${note.replace(/\s*\n\s*/g, ' / ')}`);
     lines.push('');
   });
 
   // Unplayed holes on one line, with runs shortened: "Not played: holes 4–9, 12".
-  const unplayed = scores.filter(r => !r.played).map(r => r.h);
+  const unplayed = scores.filter(r => !r.played && !holeNote(round, r.h)).map(r => r.h);
   if (unplayed.length) {
     const runs = [];
     unplayed.forEach(h => {
@@ -1235,6 +1274,9 @@ function renderCard() {
         <button class="ghost side right" data-action="export-round">Export</button>
       </header>
       <p class="card-title card-head">${esc(roundLabel(round))}<small>${round.tee ? `${esc(round.tee)} tee · ` : ''}${esc(dateFmt.format(round.createdAt))} ${esc(timeFmt.format(round.createdAt))}</small></p>
+      ${round.note
+        ? `<button class="round-note" data-action="round-note" aria-label="Edit round note"><span>${esc(round.note)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>`
+        : '<button class="inline-btn add-note" data-action="round-note">Add a note</button>'}
       ${tabBar}
       <main class="scroll">
         ${cardTab === 'clubs' ? clubsTab : `
@@ -1309,6 +1351,34 @@ function renderSheet() {
         <p class="hint">For several tees, give the holes par and index, and list the tees with their lengths. A tee can also set its own par or index on a hole: <code>{"name":"My Course","holes":[{"par":4,"index":7}, …],"tees":[{"name":"Gul","holes":[{"length":352}, …]},{"name":"Röd","holes":[{"length":301,"par":5}, …]}]}</code></p>
         <textarea class="json-box" id="import-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
         <button class="primary" data-action="do-import">Import</button>
+        <button class="link" data-action="close-sheet">Cancel</button>
+      </div>`;
+  }
+
+  if (sheet.type === 'note') {
+    const round = getRound();
+    const isHole = sheet.scope === 'hole';
+    const text = isHole ? holeNote(round, sheet.hole) : (round.note || '');
+    const title = isHole ? `Note for hole ${sheet.hole}` : 'Round note';
+    // A locked hole's note can be read but not changed, like its strokes.
+    if (isHole && isLocked(round, sheet.hole)) {
+      return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="${title}">
+        <h2>${title}</h2>
+        <p class="note-read">${esc(text)}</p>
+        <p class="hint">Hole ${sheet.hole} is locked. Unlock it to change the note.</p>
+        <button class="link" data-action="close-sheet">Close</button>
+      </div>`;
+    }
+    return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="${title}">
+        <h2>${title}</h2>
+        <p class="hint">${isHole ? 'What happened on this hole? Optional.' : 'How did the round go? Weather, company, anything worth remembering. Optional.'}</p>
+        <textarea class="json-box note-box" id="note-text" maxlength="${NOTE_MAX[sheet.scope]}" spellcheck="true">${esc(text)}</textarea>
+        <button class="primary" data-action="save-note">Save</button>
+        ${text ? '<button class="danger" data-action="delete-note" style="margin-top:10px">Delete note</button>' : ''}
         <button class="link" data-action="close-sheet">Cancel</button>
       </div>`;
   }
@@ -1791,6 +1861,29 @@ function measureLanding() {
   render();
 }
 
+// Saves the open note sheet's text; an empty note is removed. Locked holes' notes are left alone.
+function saveNote(value) {
+  const round = getRound();
+  const text = value.trim().slice(0, NOTE_MAX[sheet.scope]);
+  if (sheet.scope === 'hole') {
+    if (isLocked(round, sheet.hole)) return;
+    round.notes = round.notes || {};
+    if (text) round.notes[sheet.hole] = text; else delete round.notes[sheet.hole];
+  } else if (text) {
+    round.note = text;
+  } else {
+    delete round.note;
+  }
+  sheet = null;
+  saveDb();
+  render();
+}
+
+function focusNote() {
+  const input = document.getElementById('note-text');
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
 // Done: lock the current hole and go on to the next one, or to the scorecard after the last hole.
 function doneHole() {
   const round = getRound();
@@ -2015,6 +2108,14 @@ app.addEventListener('click', event => {
     case 'edit-handicap': sheet = { type: 'handicap' }; render(); break;
     case 'export-round': sheet = { type: 'export', text: roundExportText(round) }; render(); break;
     case 'copy-export': copyText(sheet.text); break;
+    case 'hole-note': sheet = { type: 'note', scope: 'hole', hole: round.currentHole }; render(); focusNote(); break;
+    case 'round-note': sheet = { type: 'note', scope: 'round' }; render(); focusNote(); break;
+    case 'save-note': {
+      const input = document.getElementById('note-text');
+      saveNote(input ? input.value : '');
+      break;
+    }
+    case 'delete-note': saveNote(''); break;
     case 'save-handicap': saveHandicap(); break;
     case 'remove-handicap':
       round.handicap = null;
