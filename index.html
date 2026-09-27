@@ -133,6 +133,10 @@
   .note-btn svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .note-btn.has { border-color: var(--fairway); color: var(--fairway-deep); background: var(--sand); }
   .note-btn.has .note-page { fill: var(--white); }
+  .stroke-note-field { margin: 0 0 14px; }
+  .json-box.note-box.stroke-note-box { min-height: 70px; margin-bottom: 0; }
+  .stroke-note { display: inline-grid; place-items: center; color: var(--fairway); }
+  .stroke-note svg { width: 18px; height: 18px; fill: var(--sand); stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .json-box.note-box { min-height: 140px; font: inherit; font-size: 17px; line-height: 1.4; }
   .note-read { white-space: pre-wrap; margin: 0 0 12px; padding: 12px; border-radius: 12px; background: var(--paper);
                border: 2px solid var(--line); font-size: 16px; }
@@ -357,7 +361,8 @@ const FIX_MAX_AGE_MS = 30000;
     modFlags: [],              // modifiers (chip, pitch, bunker, rough) switched on for the next stroke
     activeRoundId: null        // round that was open last time
   }
-  stroke = { t, club, lat, lng, acc, landing?: { lat, lng, acc }, chip?, pitch?, bunker?, rough? }  // modifiers are true when set
+  stroke = { t, club, lat, lng, acc, landing?: { lat, lng, acc }, chip?, pitch?, bunker?, rough?,  // modifiers are true when set
+             note? }                                                                              // optional comment on the stroke
 */
 
 function loadDb() {
@@ -513,7 +518,7 @@ function roundTotals(round) {
 }
 
 // Optional notes: one per hole (round.notes["3"]) and one for the whole round (round.note). Plain text, capped.
-const NOTE_MAX = { hole: 500, round: 1500 };
+const NOTE_MAX = { hole: 500, round: 1500, stroke: 300 };
 const NOTE_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path class="note-page" d="M5 3.5h10l4 4V20.5H5z"/><path class="note-lines" d="M8.5 11h7M8.5 14.5h7M8.5 18h4.5"/></svg>';
 function holeNote(round, hole) {
   return (round.notes && round.notes[hole]) || '';
@@ -924,12 +929,18 @@ function renderRound() {
     }
     return `
       <li>
-        <${locked ? 'div' : 'button'} class="stroke"${locked ? '' : ` data-action="edit-stroke" data-index="${i}"`}>
+        ${(() => {
+          // On a locked hole only strokes with a comment can be opened, to read it.
+          const action = !locked ? 'edit-stroke' : (s.note ? 'view-stroke' : '');
+          const tag = action ? 'button' : 'div';
+          return `<${tag} class="stroke"${action ? ` data-action="${action}" data-index="${i}"` : ''}>
           <span class="n">${i + 1}</span>
           <span class="club">${esc(s.club)}</span>
           ${modTags(s)}
+          ${s.note ? `<span class="stroke-note" role="img" aria-label="Has a comment">${NOTE_ICON}</span>` : ''}
           ${hasPos(s) ? '' : '<span class="nopos">no position</span>'}
-        </${locked ? 'div' : 'button'}>
+        </${tag}>`;
+        })()}
         ${right}
       </li>`;
   }).join('');
@@ -1043,7 +1054,8 @@ function roundExportText(round) {
       const mods = MODS.filter(m => stroke[m.key]).map(m => m.key);
       const d = shotDistance(r.list, i);
       const label = stroke.club === PENALTY ? 'Penalty stroke' : stroke.club;
-      lines.push(`  ${i + 1}. ${label}${mods.length ? ` (${mods.join(', ')})` : ''}${d ? ` – ${fmtDist(d)}` : ''}`);
+      const comment = stroke.note ? ` · Comment: ${stroke.note.replace(/\s*\n\s*/g, ' / ')}` : '';
+      lines.push(`  ${i + 1}. ${label}${mods.length ? ` (${mods.join(', ')})` : ''}${d ? ` – ${fmtDist(d)}` : ''}${comment}`);
     });
     if (note) lines.push(`  Note: ${note.replace(/\s*\n\s*/g, ' / ')}`);
     lines.push('');
@@ -1441,6 +1453,19 @@ function renderSheet() {
   if (!stroke) return '';
   // Show the bag clubs, plus this stroke's club if it has since been removed from the bag, plus Penalty.
   const options = CLUBS.filter(c => db.activeClubs.includes(c) || c === stroke.club).concat(PENALTY);
+  // A locked hole's strokes can only be read, including the comment.
+  if (isLocked(round, round.currentHole)) {
+    const mods = MODS.filter(m => stroke[m.key]).map(m => m.key);
+    return `
+    <div class="backdrop" data-action="close-sheet"></div>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Stroke">
+      <h2>Stroke ${sheet.index + 1} on hole ${round.currentHole}</h2>
+      <p class="hint">${esc(stroke.club)}${mods.length ? ` (${mods.join(', ')})` : ''}</p>
+      ${stroke.note ? `<p class="note-read">${esc(stroke.note)}</p>` : ''}
+      <p class="hint">Hole ${round.currentHole} is locked. Unlock it to change this stroke.</p>
+      <button class="link" data-action="close-sheet">Close</button>
+    </div>`;
+  }
   const modToggles = stroke.club !== PENALTY
     ? `<p class="hint">Shot type and lie</p><div class="sheet-mods">${modsHtml(k => !!stroke[k], 'toggle-stroke-mod')}</div>`
     : '';
@@ -1451,8 +1476,12 @@ function renderSheet() {
       <p class="hint">Choose club</p>
       <div class="chips">${chipsHtml(options, stroke.club, 'set-club')}</div>
       ${modToggles}
+      <label class="field stroke-note-field"><span>Comment (optional)</span>
+        <textarea class="json-box note-box stroke-note-box" id="stroke-note" maxlength="${NOTE_MAX.stroke}" rows="2"
+                  placeholder="e.g. misread the wind">${esc(stroke.note || '')}</textarea>
+      </label>
       <button class="danger" data-action="delete-stroke">Delete stroke</button>
-      <button class="link" data-action="close-sheet">Cancel</button>
+      <button class="link" data-action="close-sheet">Done</button>
     </div>`;
 }
 
@@ -2146,6 +2175,7 @@ app.addEventListener('click', event => {
     case 'edit-stroke':
       if (isLocked(round, round.currentHole)) break;  // locked holes are read-only until unlocked
       sheet = { type: 'stroke', index: Number(el.dataset.index) }; render(); break;
+    case 'view-stroke': sheet = { type: 'stroke', index: Number(el.dataset.index) }; render(); break;
     case 'set-club': {
       const list = holeList(round, round.currentHole);
       const stroke = list[sheet.index];
@@ -2187,6 +2217,19 @@ app.addEventListener('change', event => {
     draft.count = Number(target.value);
     render();
   }
+});
+
+// A stroke's comment is saved as you type, so changing club or lie in the same sheet never loses it.
+// Only the comment changes; the stroke's position and any live distance measurement are untouched.
+app.addEventListener('input', event => {
+  if (event.target.id !== 'stroke-note' || !sheet || sheet.type !== 'stroke') return;
+  const round = getRound();
+  if (!round || isLocked(round, round.currentHole)) return;
+  const stroke = holeList(round, round.currentHole)[sheet.index];
+  if (!stroke) return;
+  const text = event.target.value.trim().slice(0, NOTE_MAX.stroke);
+  if (text) stroke.note = text; else delete stroke.note;
+  saveDb();
 });
 
 // Number fields in the course editor: keep digits only and update the draft as you type.
