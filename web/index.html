@@ -190,8 +190,9 @@
   .field span { display: block; font-size: 14px; color: var(--mute); font-weight: 600; margin-bottom: 6px; }
   .field input, .field select { width: 100%; min-height: 50px; border: 2px solid var(--line); border-radius: 12px; padding: 0 12px;
                  font: inherit; font-size: 17px; background: var(--paper); color: var(--ink); }
+  /* The text is 16px or more so iOS does not zoom in when the box gets focus. */
   .json-box { width: 100%; min-height: 150px; border: 2px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px;
-              font: 14px/1.4 ui-monospace, Menlo, monospace; background: var(--paper); color: var(--ink); resize: vertical; }
+              font: 16px/1.4 ui-monospace, Menlo, monospace; background: var(--paper); color: var(--ink); resize: vertical; }
   .seg { display: flex; gap: 8px; margin: 14px 0 0; }
   .seg + .seg { margin-top: 8px; }
   .seg + .primary, .field + .seg { margin-top: 14px; }
