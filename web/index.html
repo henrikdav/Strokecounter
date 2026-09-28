@@ -183,6 +183,7 @@
   .sheet.no-rise { animation: none; }
   .sheet h2 { margin: 0 0 12px; font-size: 22px; font-weight: 800; }
   .hint { margin: 0 0 8px; color: var(--mute); font-size: 14px; }
+  .form-error { margin: -4px 0 12px; color: var(--flag); font-size: 14px; font-weight: 600; }
   .sheet .chips + .hint { margin: -2px 0 14px; }
   .field { display: block; }
   .field + .field { margin-top: 12px; }
@@ -366,32 +367,40 @@ const FIX_MAX_AGE_MS = 30000;
              note? }                                                                              // optional comment on the stroke
 */
 
+// Turns saved (or restored) data into a db, filling in defaults. Returns null when there are no rounds to read.
+function normalizeDb(data) {
+  if (!data || !Array.isArray(data.rounds)) return null;
+  let activeClubs = Array.isArray(data.activeClubs)
+    ? CLUBS.filter(c => data.activeClubs.includes(c))
+    : [...CLUBS];
+  if (activeClubs.length === 0) activeClubs = [...CLUBS];
+  const courses = Array.isArray(data.courses)
+    ? data.courses.filter(isCourseShape)
+    : [];
+  return {
+    courses,
+    allowance: ALLOWANCES.includes(Number(data.allowance)) ? Number(data.allowance) : 100,
+    rounds: data.rounds,
+    activeClubs,
+    club: (activeClubs.includes(data.club) || data.club === PENALTY) ? data.club : activeClubs[0],
+    // Modifiers switched on for the next stroke. Older saves only had a single chip flag.
+    modFlags: Array.isArray(data.modFlags)
+      ? MODS.map(m => m.key).filter(k => data.modFlags.includes(k))
+      : (data.chipFlag ? ['chip'] : []),
+    activeRoundId: data.activeRoundId || null
+  };
+}
+
+function isCourseShape(c) {
+  return !!c && typeof c.name === 'string' && Array.isArray(c.holes);
+}
+
 function loadDb() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const data = JSON.parse(raw);
-      if (data && Array.isArray(data.rounds)) {
-        let activeClubs = Array.isArray(data.activeClubs)
-          ? CLUBS.filter(c => data.activeClubs.includes(c))
-          : [...CLUBS];
-        if (activeClubs.length === 0) activeClubs = [...CLUBS];
-        const courses = Array.isArray(data.courses)
-          ? data.courses.filter(c => c && typeof c.name === 'string' && Array.isArray(c.holes))
-          : [];
-        return {
-          courses,
-          allowance: ALLOWANCES.includes(Number(data.allowance)) ? Number(data.allowance) : 100,
-          rounds: data.rounds,
-          activeClubs,
-          club: (activeClubs.includes(data.club) || data.club === PENALTY) ? data.club : activeClubs[0],
-          // Modifiers switched on for the next stroke. Older saves only had a single chip flag.
-          modFlags: Array.isArray(data.modFlags)
-            ? MODS.map(m => m.key).filter(k => data.modFlags.includes(k))
-            : (data.chipFlag ? ['chip'] : []),
-          activeRoundId: data.activeRoundId || null
-        };
-      }
+      const loaded = normalizeDb(JSON.parse(raw));
+      if (loaded) return loaded;
     }
   } catch (err) { /* ignore and start fresh */ }
   return { courses: [], rounds: [], allowance: 100, activeClubs: [...CLUBS], club: CLUBS[0], modFlags: [], activeRoundId: null };
@@ -777,6 +786,7 @@ function renderList() {
           <button class="link" data-action="edit-bag">My bag</button>
         </div>
         <button class="link" data-action="export">Copy all data as JSON</button>
+        <button class="link" data-action="restore">Restore from backup</button>
       </footer>
     </div>`;
 }
@@ -1369,6 +1379,31 @@ function renderSheet() {
       </div>`;
   }
 
+  if (sheet.type === 'restore' && sheet.backup) {
+    const b = sheet.backup;
+    return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Restore from backup">
+        <h2>Replace all data?</h2>
+        <p class="hint">Your ${countText(db.rounds.length, 'round')} and ${countText(db.courses.length, 'course')} will be deleted and replaced by the backup's ${countText(b.rounds.length, 'round')} and ${countText(b.courses.length, 'course')}. This cannot be undone.</p>
+        <button class="danger" data-action="confirm-restore">Replace all data</button>
+        <button class="link" data-action="close-sheet">Cancel</button>
+      </div>`;
+  }
+
+  if (sheet.type === 'restore') {
+    return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Restore from backup">
+        <h2>Restore from backup</h2>
+        <p class="hint">Paste the text from "Copy all data as JSON". This replaces all current data, rounds and courses, and cannot be undone.</p>
+        <textarea class="json-box" id="restore-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+        <p class="form-error" id="restore-error" role="alert" hidden></p>
+        <button class="primary" data-action="check-restore">Restore</button>
+        <button class="link" data-action="close-sheet">Cancel</button>
+      </div>`;
+  }
+
   if (sheet.type === 'note') {
     const round = getRound();
     const isHole = sheet.scope === 'hole';
@@ -1832,6 +1867,58 @@ function importCourses(text) {
   toast(parsed.length === 1 ? 'Imported 1 course' : `Imported ${parsed.length} courses`);
 }
 
+/* ---------- Restore from backup ---------- */
+
+// Reads a pasted backup. Problems are shown in the sheet so the pasted text stays in place;
+// a valid backup moves the sheet on to the confirmation step.
+function checkRestore(text) {
+  const error = document.getElementById('restore-error');
+  const fail = message => { error.textContent = message; error.hidden = false; };
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    fail('That is not valid JSON. Paste the whole backup, from the first { to the last }.');
+    return;
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.rounds) || !Array.isArray(data.courses)) {
+    fail('This does not look like a backup. It needs both "rounds" and "courses" lists.');
+    return;
+  }
+  if (!data.rounds.every(r => r && typeof r === 'object' && r.id && r.holes && typeof r.holes === 'object')) {
+    fail('Some rounds in the backup could not be read. Nothing was changed.');
+    return;
+  }
+  if (!data.courses.every(isCourseShape)) {
+    fail('Some courses in the backup could not be read. Nothing was changed.');
+    return;
+  }
+  sheet = { type: 'restore', backup: data };
+  render();
+}
+
+// Replaces everything with the backup. Settings the backup does not include (adjustment, next club
+// and modifiers) are kept from the current data.
+function confirmRestore() {
+  const backup = sheet.backup;
+  db = normalizeDb({
+    allowance: db.allowance, club: db.club, modFlags: db.modFlags, activeClubs: db.activeClubs,
+    ...backup,
+    activeRoundId: null
+  });
+  db.courses.forEach(migrateCourse);
+  saveDb();
+  sheet = null;
+  view = 'list';
+  roundId = null;
+  render();
+  toast(`Restored ${countText(db.rounds.length, 'round')} and ${countText(db.courses.length, 'course')}`);
+}
+
+function countText(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
 /* ---------- Round actions ---------- */
 
 function openRound(id) {
@@ -2070,6 +2157,9 @@ app.addEventListener('click', event => {
       }
       break;
     case 'export': exportData(); break;
+    case 'restore': sheet = { type: 'restore' }; render(); break;
+    case 'check-restore': checkRestore(document.getElementById('restore-text').value); break;
+    case 'confirm-restore': confirmRestore(); break;
 
     case 'courses': view = 'courses'; render(); break;
     case 'courses-back': view = 'list'; render(); break;
