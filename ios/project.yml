@@ -21,7 +21,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.henrikdav.StrokeCounter
+        DEVELOPMENT_TEAM: 848GGC8882
+        CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Used to measure shot distances and track your position on the course during a round.
         TARGETED_DEVICE_FAMILY: "1"

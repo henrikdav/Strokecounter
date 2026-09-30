@@ -7,7 +7,14 @@ struct WebAppView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView()
+        let configuration = WKWebViewConfiguration()
+        let gps = context.coordinator.gps
+        configuration.userContentController.add(gps, name: GPSBridge.handlerName)
+        if let script = GPSBridge.userScript {
+            configuration.userContentController.addUserScript(script)
+        }
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        gps.webView = webView
         webView.uiDelegate = context.coordinator
         if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web") {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
@@ -20,6 +27,8 @@ struct WebAppView: UIViewRepresentable {
     // WKWebView shows no JavaScript dialogs on its own: without this, confirm() answers false
     // at once and the web app's delete buttons do nothing.
     final class Coordinator: NSObject, WKUIDelegate {
+        let gps = GPSBridge()
+
         func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
                      initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
             let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
