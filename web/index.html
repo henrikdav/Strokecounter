@@ -56,6 +56,11 @@
   .gps.good::before { background: #2E8B4E; }
   .gps.ok::before { background: #D9A21B; }
   .gps.bad::before { background: var(--flag); }
+  /* Accuracy dot on a toast, e.g. after marking the hole. Same colours as the GPS status. */
+  #toast[data-level]::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; }
+  #toast[data-level="good"]::before { background: #2E8B4E; }
+  #toast[data-level="ok"]::before { background: #D9A21B; }
+  #toast[data-level="bad"]::before { background: var(--flag); }
 
   /* Round screen */
   .holebar { display: flex; align-items: center; justify-content: space-between; padding: 2px 14px; }
@@ -133,6 +138,12 @@
   .note-btn svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .note-btn.has { border-color: var(--fairway); color: var(--fairway-deep); background: var(--sand); }
   .note-btn.has .note-page { fill: var(--white); }
+  /* Mark hole button: the same outlined/filled look as the note button, filled once the hole is marked. */
+  .mark-btn .pin-head { fill: none; }
+  .mark-btn.has .pin-head { fill: var(--flag); }
+  .hole-pin { display: inline-flex; align-items: center; gap: 4px; color: var(--fairway); }
+  .hole-pin svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .hole-pin .pin-head { fill: var(--flag); }
   .stroke-note-field { margin: 0 0 14px; }
   .json-box.note-box.stroke-note-box { min-height: 70px; margin-bottom: 0; }
   .stroke-note { display: inline-grid; place-items: center; color: var(--fairway); }
@@ -357,7 +368,8 @@ const FIX_MAX_AGE_MS = 30000;
                holes: { "1": [stroke, ...], ... },           // keyed by real hole number (startHole ...)
                locked: [1, 2, ...],                           // holes finished with Done; their controls are locked
                tee,                                           // name of the tee played, missing for older rounds
-               notes: { "3": "text" }, note }],               // optional comments per hole and for the round
+               notes: { "3": "text" }, note,                  // optional comments per hole and for the round
+               holePositions: { "3": { lat, lng, acc, t } } }], // where the hole (cup) was on each hole that day, optional
     allowance: 100,            // last used handicap adjustment %
     activeClubs: [...],        // clubs in the bag, shown when adding a stroke
     club: 'Driver',            // club selected for the next stroke
@@ -532,6 +544,12 @@ function roundTotals(round) {
 // Optional notes: one per hole (round.notes["3"]) and one for the whole round (round.note). Plain text, capped.
 const NOTE_MAX = { hole: 500, round: 1500, stroke: 300 };
 const NOTE_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path class="note-page" d="M5 3.5h10l4 4V20.5H5z"/><path class="note-lines" d="M8.5 11h7M8.5 14.5h7M8.5 18h4.5"/></svg>';
+const PIN_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.5s-6.5-6.2-6.5-11.5a6.5 6.5 0 0 1 13 0c0 5.3-6.5 11.5-6.5 11.5z"/><circle class="pin-head" cx="12" cy="10" r="2.6"/></svg>';
+function markButton(round, hole) {
+  const has = !!holePosition(round, hole);
+  return `<button class="note-btn mark-btn${has ? ' has' : ''}" data-action="mark-hole" aria-label="${has ? 'Mark hole position again' : 'Mark hole position'}">${PIN_ICON}</button>`;
+}
+
 function holeNote(round, hole) {
   return (round.notes && round.notes[hole]) || '';
 }
@@ -610,6 +628,25 @@ function shotDistance(list, i) {
   return { m: meters(stroke, end), approx: (stroke.acc || 0) + (end.acc || 0) > 25 };
 }
 
+// Where the hole (cup) was marked on a hole of this round, or null. Pin placements change daily, so this is
+// round data, not course data.
+function holePosition(round, hole) {
+  const p = round.holePositions && round.holePositions[hole];
+  return hasPos(p) ? p : null;
+}
+
+// Distance from stroke i's own position to the marked hole. Null for Putter and Penalty, like shotDistance.
+function distanceToHole(list, i, holePos) {
+  const stroke = list[i];
+  if (!stroke || stroke.club === 'Putter' || stroke.club === PENALTY || !hasPos(stroke) || !hasPos(holePos)) return null;
+  return { m: meters(stroke, holePos), approx: (stroke.acc || 0) + (holePos.acc || 0) > 25 };
+}
+
+// GPS accuracy as good / ok / bad, used by the status pill and the mark-hole confirmation.
+function accuracyClass(acc) {
+  return acc <= 10 ? 'good' : (acc <= 25 ? 'ok' : 'bad');
+}
+
 function fmtDist(d) {
   if (!d) return '';
   const m = Math.round(d.m);
@@ -620,7 +657,7 @@ function roundLabel(round) {
   return round.name || dateFmt.format(round.createdAt);
 }
 
-function toast(message) {
+function toast(message, level) {
   let el = document.getElementById('toast');
   if (!el) {
     el = document.createElement('div');
@@ -629,6 +666,7 @@ function toast(message) {
     document.body.appendChild(el);
   }
   el.textContent = message;
+  if (level) el.dataset.level = level; else delete el.dataset.level;
   el.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
@@ -692,7 +730,7 @@ function updateGps() {
     cls = 'bad'; text = 'Location access denied';
   } else if (freshFix()) {
     const acc = Math.round(lastFix.acc);
-    cls = acc <= 10 ? 'good' : (acc <= 25 ? 'ok' : 'bad');
+    cls = accuracyClass(acc);
     text = 'GPS ±' + acc + ' m';
   }
   el.className = 'gps ' + cls;
@@ -958,14 +996,17 @@ function renderRound() {
       </li>`;
   }).join('');
 
-  const infoHtml = info
-    ? `<div class="holeinfo">
-         <span>Par ${info.par}</span>
+  const pin = holePosition(round, hole);
+  const pinHtml = pin
+    ? `<span class="hole-pin" role="img" aria-label="Hole marked, ±${Math.round(pin.acc)} m">${PIN_ICON}±${Math.round(pin.acc)} m</span>`
+    : '';
+  const infoHtml = `<div class="holeinfo">
+         ${info ? `<span>Par ${info.par}</span>
          ${info.length ? `<span>${info.length} m</span>` : ''}
          ${Number.isInteger(info.index) ? `<span>Index ${info.index}</span>` : ''}
-         ${extra ? `<span class="extra">${extra} extra</span>` : ''}
-       </div>`
-    : '<div class="holeinfo"></div>';
+         ${extra ? `<span class="extra">${extra} extra</span>` : ''}` : ''}
+         ${pinHtml}
+       </div>`;
   const roundPart = totals.toPar === null ? '' : `, ${fmtToPar(totals.toPar)} to par`;
 
   return `
@@ -1010,6 +1051,7 @@ function renderRound() {
         <div class="actions">
           <button class="add" data-action="add">+1 stroke</button>
           ${noteButton(round, hole)}
+          ${markButton(round, hole)}
           <button class="done" data-action="done-hole">Done</button>
         </div>
       </footer>`}
@@ -1019,7 +1061,8 @@ function renderRound() {
 const exportDateFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 
 // A plain-text recap of the whole round for pasting into an AI or sharing: header, each hole with its strokes
-// (club, modifiers, distance), then OUT/IN/Total. No GPS positions or times. Null when nothing is logged yet.
+// (club, modifiers, distance, and distance to the hole when the hole was marked),
+// then OUT/IN/Total. No GPS positions or times. Null when nothing is logged yet.
 function roundExportText(round) {
   const numbers = holeNumbers(round);
   const hasNotes = !!round.note || numbers.some(h => holeNote(round, h));
@@ -1062,13 +1105,16 @@ function roundExportText(round) {
     const note = holeNote(round, r.h);
     if (!r.played) { lines.push('  Not played', `  Note: ${note.replace(/\s*\n\s*/g, ' / ')}`, ''); return; }
     const res = results(r);
-    lines.push(`  ${r.shown} ${r.shown === 1 ? 'stroke' : 'strokes'}${res ? ` (${res})` : ''}`);
+    const pin = holePosition(round, r.h);
+    lines.push(`  ${r.shown} ${r.shown === 1 ? 'stroke' : 'strokes'}${res ? ` (${res})` : ''}${pin ? `, hole marked (±${Math.round(pin.acc)} m)` : ''}`);
     r.list.forEach((stroke, i) => {
       const mods = MODS.filter(m => stroke[m.key]).map(m => m.key);
       const d = shotDistance(r.list, i);
       const label = stroke.club === PENALTY ? 'Penalty stroke' : stroke.club;
+      const toHole = distanceToHole(r.list, i, pin);
+      const pinPart = toHole ? ` · ${fmtDist(toHole)} to hole` : '';
       const comment = stroke.note ? ` · Comment: ${stroke.note.replace(/\s*\n\s*/g, ' / ')}` : '';
-      lines.push(`  ${i + 1}. ${label}${mods.length ? ` (${mods.join(', ')})` : ''}${d ? ` – ${fmtDist(d)}` : ''}${comment}`);
+      lines.push(`  ${i + 1}. ${label}${mods.length ? ` (${mods.join(', ')})` : ''}${d ? ` – ${fmtDist(d)}` : ''}${pinPart}${comment}`);
     });
     if (note) lines.push(`  Note: ${note.replace(/\s*\n\s*/g, ' / ')}`);
     lines.push('');
@@ -1377,6 +1423,17 @@ function renderSheet() {
         <textarea class="json-box" id="import-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
         <button class="primary" data-action="do-import">Import</button>
         <button class="link" data-action="close-sheet">Cancel</button>
+      </div>`;
+  }
+
+  if (sheet.type === 'mark-reminder') {
+    return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Mark the hole">
+        <h2>Mark the hole first?</h2>
+        <p class="hint">Standing at the hole, mark it to measure each stroke's distance to the pin. This is optional.</p>
+        <button class="primary" data-action="mark-and-done">Mark now</button>
+        <button class="link" data-action="skip-mark">Skip</button>
       </div>`;
   }
 
@@ -2025,6 +2082,35 @@ function focusNote() {
 }
 
 // Done: lock the current hole and go on to the next one, or to the scorecard after the last hole.
+// Saves the current GPS position as where the hole is today. Marking again overwrites it.
+// Returns false when there is no recent fix.
+function markHole() {
+  const round = getRound();
+  const fix = freshFix();
+  if (!fix) { toast('No GPS fix yet'); return false; }
+  if (!round.holePositions) round.holePositions = {};
+  round.holePositions[round.currentHole] = { lat: fix.lat, lng: fix.lng, acc: fix.acc, t: Date.now() };
+  saveDb();
+  render();
+  toast(`Hole marked (±${Math.round(fix.acc)} m)`, accuracyClass(fix.acc));
+  return true;
+}
+
+// Done on a hole with strokes but no marked hole asks once whether to mark it first. Skip carries on as usual.
+const markReminded = new Set();   // "roundId:hole" already asked about, for this session
+function tapDone() {
+  const round = getRound();
+  const hole = round.currentHole;
+  const key = round.id + ':' + hole;
+  if (!holePosition(round, hole) && holeList(round, hole).length && !markReminded.has(key)) {
+    markReminded.add(key);
+    sheet = { type: 'mark-reminder' };
+    render();
+    return;
+  }
+  doneHole();
+}
+
 function doneHole() {
   const round = getRound();
   const hole = round.currentHole;
@@ -2095,8 +2181,26 @@ async function exportData() {
     exportedAt: new Date().toISOString(),
     courses: db.courses,
     rounds: db.rounds,
-    activeClubs: db.activeClubs
+    activeClubs: db.activeClubs,
+    holeMetrics: holeMetrics()
   }, null, 2));
+}
+
+// Distances worked out from the marked holes, for analysis. Computed at export only and never read back
+// (Restore ignores this key). Per round and hole, one entry per stroke: toHole is the distance to the hole
+// in meters, null when unknown.
+function holeMetrics() {
+  const round1 = v => v === null ? null : Math.round(v * 10) / 10;
+  return db.rounds.map(round => {
+    const holes = {};
+    holeNumbers(round).forEach(h => {
+      const pin = holePosition(round, h);
+      const list = round.holes[h] || [];
+      if (!pin || !list.length) return;
+      holes[h] = list.map((stroke, i) => ({ toHole: round1(distanceToHole(list, i, pin)?.m ?? null) }));
+    });
+    return { roundId: round.id, holes };
+  }).filter(r => Object.keys(r.holes).length);
 }
 
 // Copies text to the clipboard, falling back to a hidden text area where the Clipboard API is unavailable.
@@ -2270,7 +2374,10 @@ app.addEventListener('click', event => {
     case 'prev-hole': changeHole(-1); break;
     case 'next-hole': changeHole(1); break;
     case 'add': addStroke(); break;
-    case 'done-hole': doneHole(); break;
+    case 'done-hole': tapDone(); break;
+    case 'mark-hole': if (!isLocked(round, round.currentHole)) markHole(); break;
+    case 'mark-and-done': if (markHole()) { sheet = null; doneHole(); } break;
+    case 'skip-mark': sheet = null; doneHole(); break;
     case 'measure': if (!isLocked(round, round.currentHole)) measureLanding(); break;
     case 'pick-club':
       db.club = el.dataset.club;
