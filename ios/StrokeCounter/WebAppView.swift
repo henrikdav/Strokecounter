@@ -13,8 +13,11 @@ struct WebAppView: UIViewRepresentable {
         if let script = GPSBridge.userScript {
             configuration.userContentController.addUserScript(script)
         }
+        let map = context.coordinator.map
+        configuration.userContentController.add(map, name: CourseMapBridge.handlerName)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         gps.webView = webView
+        map.webView = webView
         webView.uiDelegate = context.coordinator
         if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web") {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
@@ -28,6 +31,7 @@ struct WebAppView: UIViewRepresentable {
     // at once and the web app's delete buttons do nothing.
     final class Coordinator: NSObject, WKUIDelegate {
         let gps = GPSBridge()
+        let map = CourseMapBridge()
 
         func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
                      initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
@@ -46,9 +50,7 @@ struct WebAppView: UIViewRepresentable {
 
         // WebKit requires the completion handler to be called, so fall back when there is nothing to present on.
         private func present(_ alert: UIAlertController, from webView: WKWebView, orElse fallback: () -> Void) {
-            var top = webView.window?.rootViewController
-            while let presented = top?.presentedViewController { top = presented }
-            guard let top else { fallback(); return }
+            guard let top = webView.topViewController else { fallback(); return }
             top.present(alert, animated: true)
         }
     }

@@ -73,7 +73,11 @@
   .hole-tee { display: block; margin-top: -2px; font-size: 14px; font-weight: 700; color: var(--mute); letter-spacing: 0; }
 
   .counter { text-align: center; padding: 0 14px 8px; }
-  .holeinfo { display: flex; justify-content: center; align-items: center; gap: 14px; font-size: 17px; font-weight: 700; min-height: 30px; }
+  .holeinfo { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 14px; font-size: 17px; font-weight: 700; min-height: 30px; }
+  /* Course map button, only in the iOS app. Looks like the GPS pill. */
+  .map-btn { display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px 4px 9px; border-radius: 999px;
+             border: 1px solid var(--line); background: var(--white); color: var(--fairway-deep); font-size: 14px; font-weight: 700; }
+  .map-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .over { color: var(--flag); }
   .under { color: var(--under); }
   .big { font-size: 132px; font-size: clamp(76px, 15dvh, 130px); line-height: 1.02; font-weight: 800;
@@ -545,6 +549,26 @@ function roundTotals(round) {
 const NOTE_MAX = { hole: 500, round: 1500, stroke: 300 };
 const NOTE_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path class="note-page" d="M5 3.5h10l4 4V20.5H5z"/><path class="note-lines" d="M8.5 11h7M8.5 14.5h7M8.5 18h4.5"/></svg>';
 const PIN_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.5s-6.5-6.2-6.5-11.5a6.5 6.5 0 0 1 13 0c0 5.3-6.5 11.5-6.5 11.5z"/><circle class="pin-head" cx="12" cy="10" r="2.6"/></svg>';
+// The iOS app can show a native satellite map of the hole; a normal browser has no such bridge, so the
+// button only appears inside the app.
+const courseMapBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.courseMap;
+const MAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4 3.5 6v14L9 18l6 2 5.5-2V4L15 6z"/><path d="M9 4v14M15 6v14"/></svg>';
+
+// Sends the current hole's strokes, marked hole and GPS fix to the native map. The map only reads them.
+function openCourseMap() {
+  const round = getRound();
+  const hole = round.currentHole;
+  const point = p => ({ lat: p.lat, lng: p.lng, acc: p.acc || 0 });
+  const fix = freshFix();
+  const pin = holePosition(round, hole);
+  courseMapBridge.postMessage({
+    hole,
+    strokes: holeList(round, hole).map((s, i) => hasPos(s) ? { n: i + 1, club: s.club, ...point(s) } : null).filter(Boolean),
+    holePosition: pin ? point(pin) : null,
+    fix: fix ? point(fix) : null
+  });
+}
+
 function markButton(round, hole) {
   const has = !!holePosition(round, hole);
   return `<button class="note-btn mark-btn${has ? ' has' : ''}" data-action="mark-hole" aria-label="${has ? 'Mark hole position again' : 'Mark hole position'}">${PIN_ICON}</button>`;
@@ -1006,6 +1030,7 @@ function renderRound() {
          ${Number.isInteger(info.index) ? `<span>Index ${info.index}</span>` : ''}
          ${extra ? `<span class="extra">${extra} extra</span>` : ''}` : ''}
          ${pinHtml}
+         ${courseMapBridge ? `<button class="map-btn" data-action="course-map">${MAP_ICON}Map</button>` : ''}
        </div>`;
   const roundPart = totals.toPar === null ? '' : `, ${fmtToPar(totals.toPar)} to par`;
 
@@ -2375,6 +2400,7 @@ app.addEventListener('click', event => {
     case 'next-hole': changeHole(1); break;
     case 'add': addStroke(); break;
     case 'done-hole': tapDone(); break;
+    case 'course-map': if (courseMapBridge) openCourseMap(); break;
     case 'mark-hole': if (!isLocked(round, round.currentHole)) markHole(); break;
     case 'mark-and-done': if (markHole()) { sheet = null; doneHole(); } break;
     case 'skip-mark': sheet = null; doneHole(); break;
