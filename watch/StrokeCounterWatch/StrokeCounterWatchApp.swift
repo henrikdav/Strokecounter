@@ -30,8 +30,7 @@ struct RootView: View {
 
     var body: some View {
         content
-            .onChange(of: scenePhase) { _, phase in store.setPlaying(phase != .background) }
-            .onChange(of: store.round?.id) { _, id in store.setPlaying(id != nil && scenePhase != .background) }
+            .onChange(of: scenePhase) { _, phase in store.setAppActive(phase != .background) }
     }
 
     @ViewBuilder private var content: some View {

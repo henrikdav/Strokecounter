@@ -15,6 +15,8 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
     private let session: WCSession? = WCSession.isSupported() ? WCSession.default : nil
     private let defaults = UserDefaults.standard
     private let location = LocationTracker()
+    private let workout = RoundWorkout()
+    private var appActive = true
     // The last stroke logged without a position, waiting a few seconds for a fix to fill it in.
     private var awaitingFix: (id: String, roundId: String, hole: Int, loggedAt: Date)?
     private static let backfillWindow: TimeInterval = 10   // like the phone's single-fix timeout
@@ -25,6 +27,7 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
         if let data = defaults.data(forKey: "outbox") { outbox = (try? JSONDecoder().decode([WatchEvent].self, from: data)) ?? [] }
         lastClub = defaults.string(forKey: "lastClub")
         location.onFix = { [weak self] fix in self?.backfill(fix) }
+        workout.onChange = { [weak self] in self?.updateLocation() }
         session?.delegate = self
         session?.activate()
     }
@@ -107,11 +110,47 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
     func finishHole(_ hole: Int) {
         guard let round else { return }
         send(WatchEvent(type: .finish, roundId: round.id, hole: hole))
+        endWorkoutIfRoundOver()
     }
 
-    // GPS runs while a round is on screen and the app is in the foreground, and stops otherwise to save battery.
-    func setPlaying(_ playing: Bool) {
-        if playing && round != nil { location.start() } else { location.stop() }
+    // MARK: Round lifecycle (workout session and GPS)
+
+    // The round is over once its last hole is finished, here ("Finish round") or on the phone (Done on the last
+    // hole). That is the app's existing end of a round; there is no separate end-round action.
+    var isRoundFinished: Bool {
+        guard let round, let last = round.holes.last?.number else { return false }
+        return round.locked.contains(last) ||
+            outbox.contains { $0.type == .finish && $0.roundId == round.id && $0.hole == last }
+    }
+
+    // The hole screen is showing (app in the foreground): start the golf workout for this round if it is not
+    // running yet. The first time, HealthKit asks for permission.
+    func roundScreenShown() {
+        if let round, !isRoundFinished, workout.roundId != round.id {
+            workout.end()   // a session left over from another round
+            workout.start(roundId: round.id)
+        }
+        updateLocation()
+    }
+
+    func setAppActive(_ active: Bool) {
+        appActive = active
+        updateLocation()
+    }
+
+    // GPS runs for the whole round while the workout session runs, whatever is on screen and with the screen off.
+    // Without a session (HealthKit declined) it runs only while the app is in the foreground, as before.
+    private func updateLocation() {
+        let playing = round != nil && !isRoundFinished && (workout.isRunning || appActive)
+        if playing { location.start() } else { location.stop() }
+    }
+
+    // Ends the workout (without saving it) when the round is finished, removed, or replaced by another round.
+    private func endWorkoutIfRoundOver() {
+        if workout.roundId != nil && (round == nil || round?.id != workout.roundId || isRoundFinished) {
+            workout.end()
+        }
+        updateLocation()
     }
 
     // A fix that arrives soon after a stroke was logged without one is added to that stroke.
@@ -170,6 +209,7 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
             outbox.removeAll()
         }
         saveOutbox()
+        endWorkoutIfRoundOver()
     }
 
     // Asks the phone for its current round instead of waiting for the application context, which can be slow

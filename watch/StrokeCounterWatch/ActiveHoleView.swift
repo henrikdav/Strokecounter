@@ -58,8 +58,9 @@ struct ActiveHoleView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
-        // Start looking for a fix before the first tap, so a position is usually ready when a stroke is logged.
-        .onAppear { store.setPlaying(true) }
+        // Starts the round's workout session (and with it GPS) before the first tap, so a position is usually
+        // ready when a stroke is logged.
+        .onAppear { store.roundScreenShown() }
         // Swipe up to finish the hole, as in the mockup.
         .gesture(DragGesture(minimumDistance: 30).onEnded { value in
             if value.translation.height < -40 && abs(value.translation.width) < abs(value.translation.height) {

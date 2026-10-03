@@ -38,6 +38,15 @@ targets:
     platform: watchOS
     sources:
       - ../watch/StrokeCounterWatch
+    # HealthKit, only to run a golf workout session during a round (nothing is saved to Health).
+    entitlements:
+      path: ../watch/StrokeCounterWatch/StrokeCounterWatch.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+    info:
+      path: ../watch/StrokeCounterWatch/Info.plist
+      properties:
+        WKBackgroundModes: [workout-processing]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.henrikdav.StrokeCounter.watchkitapp
@@ -49,4 +58,6 @@ targets:
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.henrikdav.StrokeCounter
         INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: NO
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Used to record where each stroke you log on the watch was played from.
+        INFOPLIST_KEY_NSHealthShareUsageDescription: Stroke Counter does not read any health data.
+        INFOPLIST_KEY_NSHealthUpdateUsageDescription: Runs a golf workout during a round so the app stays open on your wrist and keeps GPS on. The workout is not saved to Health.
         SKIP_INSTALL: YES
