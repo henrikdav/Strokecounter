@@ -373,14 +373,16 @@ const FIX_MAX_AGE_MS = 30000;
                locked: [1, 2, ...],                           // holes finished with Done; their controls are locked
                tee,                                           // name of the tee played, missing for older rounds
                notes: { "3": "text" }, note,                  // optional comments per hole and for the round
-               holePositions: { "3": { lat, lng, acc, t } } }], // where the hole (cup) was on each hole that day, optional
+               holePositions: { "3": { lat, lng, acc, t } },  // where the hole (cup) was on each hole that day, optional
+               removedStrokeIds: [id, ...] }],                // deleted strokes, so a late sync from the watch cannot bring them back
     allowance: 100,            // last used handicap adjustment %
     activeClubs: [...],        // clubs in the bag, shown when adding a stroke
     club: 'Driver',            // club selected for the next stroke
     modFlags: [],              // modifiers (chip, pitch, bunker, rough) switched on for the next stroke
-    activeRoundId: null        // round that was open last time
+    activeRoundId: null,       // round that was open last time
+    watchRoundId: null         // round shown on the Apple Watch: the one opened last
   }
-  stroke = { t, club, lat, lng, acc, landing?: { lat, lng, acc }, chip?, pitch?, bunker?, rough?,  // modifiers are true when set
+  stroke = { id, t, club, lat, lng, acc, landing?: { lat, lng, acc }, chip?, pitch?, bunker?, rough?,  // modifiers are true when set
              note? }                                                                              // optional comment on the stroke
 */
 
@@ -404,7 +406,8 @@ function normalizeDb(data) {
     modFlags: Array.isArray(data.modFlags)
       ? MODS.map(m => m.key).filter(k => data.modFlags.includes(k))
       : (data.chipFlag ? ['chip'] : []),
-    activeRoundId: data.activeRoundId || null
+    activeRoundId: data.activeRoundId || null,
+    watchRoundId: data.watchRoundId || null
   };
 }
 
@@ -420,7 +423,7 @@ function loadDb() {
       if (loaded) return loaded;
     }
   } catch (err) { /* ignore and start fresh */ }
-  return { courses: [], rounds: [], allowance: 100, activeClubs: [...CLUBS], club: CLUBS[0], modFlags: [], activeRoundId: null };
+  return { courses: [], rounds: [], allowance: 100, activeClubs: [...CLUBS], club: CLUBS[0], modFlags: [], activeRoundId: null, watchRoundId: null };
 }
 
 function saveDb() {
@@ -429,6 +432,7 @@ function saveDb() {
   } catch (err) {
     toast('Could not save. Storage is full or blocked.');
   }
+  scheduleWatchSnapshot();
 }
 
 let db = loadDb();
@@ -464,6 +468,25 @@ function esc(value) {
 
 function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// Every stroke has a stable id, so strokes logged on the Apple Watch can be merged by id whatever order they arrive in.
+function strokeId() {
+  return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : newId() + newId();
+}
+
+// Gives strokes saved before ids existed one. Returns true when something changed.
+function migrateStrokeIds(data) {
+  let changed = false;
+  data.rounds.forEach(round => Object.values(round.holes || {}).forEach(list => list.forEach(stroke => {
+    if (!stroke.id) { stroke.id = strokeId(); changed = true; }
+  })));
+  return changed;
+}
+
+function findStroke(list, id) {
+  const index = list.findIndex(s => s.id === id);
+  return index < 0 ? null : { stroke: list[index], index };
 }
 
 function getRound() {
@@ -1008,7 +1031,7 @@ function renderRound() {
           // On a locked hole only strokes with a comment can be opened, to read it.
           const action = !locked ? 'edit-stroke' : (s.note ? 'view-stroke' : '');
           const tag = action ? 'button' : 'div';
-          return `<${tag} class="stroke"${action ? ` data-action="${action}" data-index="${i}"` : ''}>
+          return `<${tag} class="stroke"${action ? ` data-action="${action}" data-id="${esc(s.id)}"` : ''}>
           <span class="n">${i + 1}</span>
           <span class="club">${esc(s.club)}</span>
           ${modTags(s)}
@@ -1570,9 +1593,9 @@ function renderSheet() {
   }
 
   const round = getRound();
-  const list = round ? holeList(round, round.currentHole) : [];
-  const stroke = list[sheet.index];
-  if (!stroke) return '';
+  const found = round ? findStroke(holeList(round, round.currentHole), sheet.strokeId) : null;
+  if (!found) return '';
+  const { stroke, index } = found;
   // Show the bag clubs, plus this stroke's club if it has since been removed from the bag, plus Penalty.
   const options = CLUBS.filter(c => db.activeClubs.includes(c) || c === stroke.club || (sheet.draft && c === sheet.draft.club)).concat(PENALTY);
   // A locked hole's strokes can only be read, including the comment.
@@ -1581,7 +1604,7 @@ function renderSheet() {
     return `
     <div class="backdrop" data-action="close-sheet"></div>
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Stroke">
-      <h2>Stroke ${sheet.index + 1} on hole ${round.currentHole}</h2>
+      <h2>Stroke ${index + 1} on hole ${round.currentHole}</h2>
       <p class="hint">${esc(stroke.club)}${mods.length ? ` (${mods.join(', ')})` : ''}</p>
       ${stroke.note ? `<p class="note-read">${esc(stroke.note)}</p>` : ''}
       <p class="hint">Hole ${round.currentHole} is locked. Unlock it to change this stroke.</p>
@@ -1594,7 +1617,7 @@ function renderSheet() {
   return `
     <div class="backdrop" data-action="close-sheet"></div>
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Edit stroke">
-      <h2>Stroke ${sheet.index + 1} on hole ${round.currentHole}</h2>
+      <h2>Stroke ${index + 1} on hole ${round.currentHole}</h2>
       <p class="hint">Choose club</p>
       <div class="chips">${chipsHtml(options, draft.club, 'set-club')}</div>
       ${modToggles}
@@ -1990,6 +2013,7 @@ function confirmRestore() {
     activeRoundId: null
   });
   db.courses.forEach(migrateCourse);
+  migrateStrokeIds(db);
   saveDb();
   sheet = null;
   view = 'list';
@@ -2002,6 +2026,103 @@ function countText(n, word) {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
+/* ---------- Apple Watch ---------- */
+
+// In the iOS app, the round opened last is mirrored to the Apple Watch: its holes, the bag and the strokes so far.
+// Strokes logged on the watch come back as events and are merged by stroke id (applyWatchEvents).
+// In a normal browser there is no bridge and none of this runs.
+const watchBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.watch;
+let watchTimer = null;
+
+function scheduleWatchSnapshot() {
+  if (!watchBridge) return;
+  clearTimeout(watchTimer);
+  watchTimer = setTimeout(sendWatchSnapshot, 300);
+}
+
+function sendWatchSnapshot() {
+  const round = db.rounds.find(r => r.id === db.watchRoundId) || null;
+  const snapshot = { round: null, bag: db.activeClubs, club: db.club };
+  if (round) {
+    const course = round.courseId ? db.courses.find(c => c.id === round.courseId) : null;
+    const strokes = {};
+    holeNumbers(round).forEach(h => {
+      strokes[h] = (round.holes[h] || []).map(s => ({
+        id: s.id, club: s.club, mods: MODS.filter(m => s[m.key]).map(m => m.key), t: s.t,
+        ...(hasPos(s) ? { lat: s.lat, lng: s.lng, acc: s.acc || 0 } : {})
+      }));
+    });
+    snapshot.round = {
+      id: round.id,
+      name: course ? course.name : roundLabel(round),
+      holes: holeNumbers(round).map(h => {
+        const info = holeInfo(round, h);
+        return { number: h, par: info ? info.par : null, index: info && Number.isInteger(info.index) ? info.index : null };
+      }),
+      currentHole: round.currentHole,
+      locked: round.locked || [],
+      strokes,
+      removed: round.removedStrokeIds || []
+    };
+  }
+  watchBridge.postMessage({ type: 'snapshot', json: JSON.stringify(snapshot) });
+}
+
+function rememberRemoved(round, id) {
+  if (!round.removedStrokeIds) round.removedStrokeIds = [];
+  if (!round.removedStrokeIds.includes(id)) round.removedStrokeIds.push(id);
+}
+
+// Called by the iOS app with events from the watch:
+//   { type: 'add', roundId, hole, stroke: { id, club, mods: ['chip', ...], t, lat?, lng?, acc? } }
+//   { type: 'remove', roundId, hole, id }
+//   { type: 'finish', roundId, hole }
+//   { type: 'position', roundId, hole, id, position: { lat, lng, acc } }   (a fix that arrived just after logging)
+// Applying an event twice changes nothing, so the app can deliver again after a resend or a crash.
+// A stroke removed on either device stays removed, even if its 'add' arrives late.
+function applyWatchEvents(events) {
+  let changed = false;
+  events.forEach(e => {
+    const round = db.rounds.find(r => r.id === e.roundId);
+    if (!round || !Number.isInteger(e.hole)) return;
+    const list = holeList(round, e.hole);
+    if (e.type === 'add' && e.stroke && e.stroke.id) {
+      if (findStroke(list, e.stroke.id) || (round.removedStrokeIds || []).includes(e.stroke.id)) return;
+      const stroke = { id: e.stroke.id, t: e.stroke.t, club: e.stroke.club };
+      if (hasPos(e.stroke)) { stroke.lat = e.stroke.lat; stroke.lng = e.stroke.lng; stroke.acc = e.stroke.acc || 0; }
+      if (stroke.club !== PENALTY) (e.stroke.mods || []).forEach(k => { if (MODS.some(m => m.key === k)) stroke[k] = true; });
+      // Keep the strokes in the order they were played, whichever device logged them and whenever they arrive.
+      const at = list.findIndex(s => s.t > stroke.t);
+      list.splice(at < 0 ? list.length : at, 0, stroke);
+      changed = true;
+    } else if (e.type === 'remove' && e.id) {
+      const found = findStroke(list, e.id);
+      if (found) { list.splice(found.index, 1); changed = true; }
+      if (!(round.removedStrokeIds || []).includes(e.id)) { rememberRemoved(round, e.id); changed = true; }
+    } else if (e.type === 'position' && e.id && hasPos(e.position)) {
+      // Only fills in a missing position; a stroke that already has one keeps it.
+      const found = findStroke(list, e.id);
+      if (found && !hasPos(found.stroke)) {
+        Object.assign(found.stroke, { lat: e.position.lat, lng: e.position.lng, acc: e.position.acc || 0 });
+        changed = true;
+      }
+    } else if (e.type === 'finish') {
+      const locked = Array.isArray(round.locked) ? round.locked : [];
+      if (!locked.includes(e.hole)) { round.locked = locked.concat(e.hole); changed = true; }
+      const last = (round.startHole || 1) + round.holeCount - 1;
+      if (round.currentHole === e.hole && e.hole < last) { round.currentHole = e.hole + 1; changed = true; }
+    }
+  });
+  if (changed) {
+    saveDb();
+    // An open sheet is left alone (it may hold a comment being typed); closing it renders anyway.
+    if (!sheet) render();
+  } else {
+    scheduleWatchSnapshot();   // nothing new, but tell the watch again what the phone has, so it can stop resending
+  }
+  return true;
+}
+
 /* ---------- Round actions ---------- */
 
 function openRound(id) {
@@ -2009,6 +2130,7 @@ function openRound(id) {
   view = 'round';
   sheet = null;
   db.activeRoundId = id;
+  db.watchRoundId = id;
   saveDb();
   startGps();
   requestWake();
@@ -2030,7 +2152,7 @@ function addStroke() {
   const round = getRound();
   const list = holeList(round, round.currentHole);
   const fix = freshFix();
-  const stroke = { t: Date.now(), club: db.club };
+  const stroke = { id: strokeId(), t: Date.now(), club: db.club };
   if (db.club !== PENALTY) db.modFlags.forEach(k => { stroke[k] = true; });
   if (fix) { stroke.lat = fix.lat; stroke.lng = fix.lng; stroke.acc = fix.acc; }
   list.push(stroke);
@@ -2070,7 +2192,8 @@ function measureLanding() {
 function saveStrokeDraft() {
   const round = getRound();
   if (!sheet || !sheet.draft || isLocked(round, round.currentHole)) return;
-  const stroke = holeList(round, round.currentHole)[sheet.index];
+  const found = findStroke(holeList(round, round.currentHole), sheet.strokeId);
+  const stroke = found && found.stroke;
   if (stroke) {
     const { club, mods, note } = sheet.draft;
     stroke.club = club;
@@ -2416,23 +2539,27 @@ app.addEventListener('click', event => {
       break;
     case 'edit-stroke': {
       if (isLocked(round, round.currentHole)) break;  // locked holes are read-only until unlocked
-      const index = Number(el.dataset.index);
-      const stroke = holeList(round, round.currentHole)[index];
-      if (!stroke) break;
+      const found = findStroke(holeList(round, round.currentHole), el.dataset.id);
+      if (!found) break;
+      const stroke = found.stroke;
       // Edits go into a draft; nothing is written to the stroke until Save.
       const mods = {};
       MODS.forEach(m => { mods[m.key] = !!stroke[m.key]; });
-      sheet = { type: 'stroke', index, draft: { club: stroke.club, mods, note: stroke.note || '' } };
+      sheet = { type: 'stroke', strokeId: stroke.id, draft: { club: stroke.club, mods, note: stroke.note || '' } };
       render();
       break;
     }
-    case 'view-stroke': sheet = { type: 'stroke', index: Number(el.dataset.index) }; render(); break;
+    case 'view-stroke': sheet = { type: 'stroke', strokeId: el.dataset.id }; render(); break;
     case 'set-club':
       if (sheet && sheet.draft) { sheet.draft.club = el.dataset.club; render(); }
       break;
     case 'delete-stroke': {
       const list = holeList(round, round.currentHole);
-      list.splice(sheet.index, 1);
+      const found = findStroke(list, sheet.strokeId);
+      if (found) {
+        list.splice(found.index, 1);
+        rememberRemoved(round, found.stroke.id);
+      }
       sheet = null;
       saveDb();
       render();
@@ -2752,6 +2879,12 @@ async function checkForUpdate() {
 
 // Courses saved before tees existed are converted once and saved back, so the rest of the app only sees tees.
 if (db.courses.map(migrateCourse).some(Boolean)) saveDb();
+// Strokes saved before stroke ids existed get one, once.
+if (migrateStrokeIds(db)) saveDb();
+if (watchBridge) {
+  watchBridge.postMessage({ type: 'hello' });   // the iOS app delivers anything logged on the watch meanwhile
+  scheduleWatchSnapshot();                      // and the watch gets the current round without waiting for a change
+}
 
 // After a pull-to-refresh, drop the throwaway ?fresh= parameter from the address.
 if (new URLSearchParams(location.search).has('fresh')) {
