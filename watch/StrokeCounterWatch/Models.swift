@@ -51,6 +51,7 @@ struct WatchEvent: Codable, Equatable {
     var stroke: Snapshot.Stroke? = nil   // add
     var id: String? = nil                // remove, position
     var position: Position? = nil        // position: a fix that arrived just after the stroke was logged
+    var t: Double? = nil                 // remove, finish: when it was done (ms), so the phone can judge it against a hole lock
 
     // True once the snapshot shows the phone has applied this event.
     func isConfirmed(by round: Snapshot.Round) -> Bool {
@@ -60,7 +61,8 @@ struct WatchEvent: Codable, Equatable {
             return round.removed.contains(stroke.id) ||
                 (round.strokes[String(hole)] ?? []).contains { $0.id == stroke.id }
         case .remove:
-            return id.map(round.removed.contains) ?? true
+            // Applied, or refused because the hole is locked on the phone.
+            return (id.map(round.removed.contains) ?? true) || round.locked.contains(hole)
         case .finish:
             return round.locked.contains(hole)
         case .position:

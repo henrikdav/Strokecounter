@@ -371,6 +371,7 @@ const FIX_MAX_AGE_MS = 30000;
                handicap: { base, allowance } | null,           // playing handicap from the slope table + adjustment %
                holes: { "1": [stroke, ...], ... },           // keyed by real hole number (startHole ...)
                locked: [1, 2, ...],                           // holes finished with Done; their controls are locked
+               lockedAt: { "1": t, ... },                     // when each hole was locked (ms), to judge late watch syncs
                tee,                                           // name of the tee played, missing for older rounds
                notes: { "3": "text" }, note,                  // optional comments per hole and for the round
                holePositions: { "3": { lat, lng, acc, t } },  // where the hole (cup) was on each hole that day, optional
@@ -608,6 +609,25 @@ function noteButton(round, hole) {
 // Holes finished with Done are locked: their stroke controls are replaced by an unlock slider.
 function isLocked(round, hole) {
   return Array.isArray(round.locked) && round.locked.includes(hole);
+}
+
+function setHoleLock(round, hole, t) {
+  round.locked = (Array.isArray(round.locked) ? round.locked : []).filter(h => h !== hole).concat(hole);
+  round.lockedAt = Object.assign({}, round.lockedAt, { [hole]: t });
+}
+
+function clearHoleLock(round, hole) {
+  round.locked = (round.locked || []).filter(h => h !== hole);
+  if (round.lockedAt) delete round.lockedAt[hole];
+}
+
+// A change from the watch made at time t (ms) is refused when the hole was already locked then. A change made
+// before the lock but delivered after it still counts, so a slow sync cannot lose a stroke that was played.
+// Holes locked before lock times were kept count as locked from the start.
+function refusedByLock(round, hole, t) {
+  if (!isLocked(round, hole)) return false;
+  const since = round.lockedAt && Number.isFinite(round.lockedAt[hole]) ? round.lockedAt[hole] : 0;
+  return !Number.isFinite(t) || t >= since;
 }
 
 // Label next to the hole number: "of 18", "front 9" or "back 9".
@@ -2075,11 +2095,13 @@ function rememberRemoved(round, id) {
 
 // Called by the iOS app with events from the watch:
 //   { type: 'add', roundId, hole, stroke: { id, club, mods: ['chip', ...], t, lat?, lng?, acc? } }
-//   { type: 'remove', roundId, hole, id }
-//   { type: 'finish', roundId, hole }
+//   { type: 'remove', roundId, hole, id, t }
+//   { type: 'finish', roundId, hole, t }
 //   { type: 'position', roundId, hole, id, position: { lat, lng, acc } }   (a fix that arrived just after logging)
 // Applying an event twice changes nothing, so the app can deliver again after a resend or a crash.
 // A stroke removed on either device stays removed, even if its 'add' arrives late.
+// The hole lock is enforced here, not only in the screens: a stroke added on the watch to a hole that was already
+// locked is refused and remembered as removed (so the watch drops it too), and a removal is ignored.
 function applyWatchEvents(events) {
   let changed = false;
   events.forEach(e => {
@@ -2088,6 +2110,7 @@ function applyWatchEvents(events) {
     const list = holeList(round, e.hole);
     if (e.type === 'add' && e.stroke && e.stroke.id) {
       if (findStroke(list, e.stroke.id) || (round.removedStrokeIds || []).includes(e.stroke.id)) return;
+      if (refusedByLock(round, e.hole, e.stroke.t)) { rememberRemoved(round, e.stroke.id); changed = true; return; }
       const stroke = { id: e.stroke.id, t: e.stroke.t, club: e.stroke.club };
       if (hasPos(e.stroke)) { stroke.lat = e.stroke.lat; stroke.lng = e.stroke.lng; stroke.acc = e.stroke.acc || 0; }
       if (stroke.club !== PENALTY) (e.stroke.mods || []).forEach(k => { if (MODS.some(m => m.key === k)) stroke[k] = true; });
@@ -2096,6 +2119,7 @@ function applyWatchEvents(events) {
       list.splice(at < 0 ? list.length : at, 0, stroke);
       changed = true;
     } else if (e.type === 'remove' && e.id) {
+      if (refusedByLock(round, e.hole, e.t)) return;
       const found = findStroke(list, e.id);
       if (found) { list.splice(found.index, 1); changed = true; }
       if (!(round.removedStrokeIds || []).includes(e.id)) { rememberRemoved(round, e.id); changed = true; }
@@ -2107,8 +2131,7 @@ function applyWatchEvents(events) {
         changed = true;
       }
     } else if (e.type === 'finish') {
-      const locked = Array.isArray(round.locked) ? round.locked : [];
-      if (!locked.includes(e.hole)) { round.locked = locked.concat(e.hole); changed = true; }
+      if (!isLocked(round, e.hole)) { setHoleLock(round, e.hole, Number.isFinite(e.t) ? e.t : Date.now()); changed = true; }
       const last = (round.startHole || 1) + round.holeCount - 1;
       if (round.currentHole === e.hole && e.hole < last) { round.currentHole = e.hole + 1; changed = true; }
     }
@@ -2263,7 +2286,7 @@ function doneHole() {
   const round = getRound();
   const hole = round.currentHole;
   const last = (round.startHole || 1) + round.holeCount - 1;
-  round.locked = (Array.isArray(round.locked) ? round.locked : []).filter(h => h !== hole).concat(hole);
+  setHoleLock(round, hole, Date.now());
   if (hole < last) {
     round.currentHole = hole + 1;
   } else {
@@ -2276,7 +2299,7 @@ function doneHole() {
 
 function unlockHole() {
   const round = getRound();
-  round.locked = (round.locked || []).filter(h => h !== round.currentHole);
+  clearHoleLock(round, round.currentHole);
   saveDb();
   render();
 }

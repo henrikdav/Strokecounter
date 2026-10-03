@@ -4,6 +4,7 @@ import WatchKit
 // Screen 1: the hole being played. The wide "+1 STROKE" button is the only way to log a stroke; the line under
 // it says exactly what a tap will log (club and armed modifiers). Bag and Modifier only change that selection.
 // Undo (top left) removes the hole's last stroke; finish (top right, or a swipe up) ends the hole.
+// A hole locked on the phone shows a notice instead, and only finish works; it updates live with the phone.
 struct ActiveHoleView: View {
     @EnvironmentObject private var store: WatchStore
     let hole: Int
@@ -12,6 +13,7 @@ struct ActiveHoleView: View {
     var body: some View {
         let strokes = store.strokes(on: hole)
         let next = strokeSummary(club: store.club, mods: Array(store.armedMods))
+        let locked = store.isLocked(hole)
         VStack(spacing: 6) {
             VStack(spacing: 0) {
                 Text("HOLE \(hole)")
@@ -28,32 +30,36 @@ struct ActiveHoleView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
 
-            Button {
-                if let stroke = store.logStroke(club: store.club, hole: hole) {
-                    WKInterfaceDevice.current().play(.click)
-                    path = [.logged(stroke, number: strokes.count + 1, hole: hole)]
+            if locked {
+                lockedNotice
+            } else {
+                Button {
+                    if let stroke = store.logStroke(club: store.club, hole: hole) {
+                        WKInterfaceDevice.current().play(.click)
+                        path = [.logged(stroke, number: strokes.count + 1, hole: hole)]
+                    }
+                } label: {
+                    // Shaped like the phone app's "+1 stroke" button.
+                    Text("+1 STROKE")
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(accentInk)
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .background(RoundedRectangle(cornerRadius: 18).fill(accent))
                 }
-            } label: {
-                // Shaped like the phone app's "+1 stroke" button.
-                Text("+1 STROKE")
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(accentInk)
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(RoundedRectangle(cornerRadius: 18).fill(accent))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Log stroke \(strokes.count + 1): \(next)")
+                .buttonStyle(.plain)
+                .accessibilityLabel("Log stroke \(strokes.count + 1): \(next)")
 
-            // What the next tap logs, in the phone's stroke-list shorthand.
-            Text(next)
-                .font(.system(size: 20, weight: .bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .accessibilityLabel("Next stroke: \(next)")
+                // What the next tap logs, in the phone's stroke-list shorthand.
+                Text(next)
+                    .font(.system(size: 20, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .accessibilityLabel("Next stroke: \(next)")
 
-            HStack(spacing: 4) {
-                navButton("Bag") { path = [.clubs] }
-                navButton("Modifier") { path = [.modifiers] }
+                HStack(spacing: 4) {
+                    navButton("Bag") { path = [.clubs] }
+                    navButton("Modifier") { path = [.modifiers] }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -77,7 +83,7 @@ struct ActiveHoleView: View {
                 } label: {
                     Image(systemName: "arrow.uturn.backward")
                 }
-                .disabled(strokes.isEmpty)
+                .disabled(strokes.isEmpty || locked)
                 .accessibilityLabel("Undo last stroke")
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -89,6 +95,22 @@ struct ActiveHoleView: View {
                 .accessibilityLabel("Finish hole")
             }
         }
+    }
+
+    // Shown in place of "+1 STROKE", the summary and Bag/Modifier. Not a button: there is nothing to do here.
+    private var lockedNotice: some View {
+        VStack(spacing: 4) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(.secondary)
+            Text("Hole locked")
+                .font(.system(size: 18, weight: .bold))
+            Text("Unlock on phone to edit")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 118)
+        .accessibilityElement(children: .combine)
     }
 
     private func navButton(_ title: String, action: @escaping () -> Void) -> some View {

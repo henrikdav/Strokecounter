@@ -20,6 +20,7 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
     // The last stroke logged without a position, waiting a few seconds for a fix to fill it in.
     private var awaitingFix: (id: String, roundId: String, hole: Int, loggedAt: Date)?
     private static let backfillWindow: TimeInterval = 10   // like the phone's single-fix timeout
+    private static var now: Double { (Date().timeIntervalSince1970 * 1000).rounded() }
 
     override init() {
         super.init()
@@ -60,6 +61,14 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
         round?.holes.first { $0.number == number }
     }
 
+    // A locked hole takes no strokes and no removals. Locked on the phone, or finished here and not yet confirmed.
+    // The phone enforces the same rule when the events arrive (applyWatchEvents in web/index.html).
+    func isLocked(_ hole: Int) -> Bool {
+        guard let round else { return false }
+        return round.locked.contains(hole) ||
+            outbox.contains { $0.type == .finish && $0.roundId == round.id && $0.hole == hole }
+    }
+
     func isLastHole(_ number: Int) -> Bool {
         round?.holes.last?.number == number
     }
@@ -83,7 +92,7 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
     // Logs a stroke with the club and the armed modifiers, which then reset like on the phone.
     @discardableResult
     func logStroke(club: String, hole: Int) -> Snapshot.Stroke? {
-        guard let round else { return nil }
+        guard let round, !isLocked(hole) else { return nil }
         let mods = Modifier.allCases.filter { armedMods.contains($0) }.map(\.rawValue)
         var stroke = Snapshot.Stroke(id: UUID().uuidString.lowercased(), club: club, mods: mods,
                                      t: (Date().timeIntervalSince1970 * 1000).rounded())
@@ -103,13 +112,13 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     func removeStroke(_ id: String, hole: Int) {
-        guard let round else { return }
-        send(WatchEvent(type: .remove, roundId: round.id, hole: hole, id: id))
+        guard let round, !isLocked(hole) else { return }
+        send(WatchEvent(type: .remove, roundId: round.id, hole: hole, id: id, t: Self.now))
     }
 
     func finishHole(_ hole: Int) {
         guard let round else { return }
-        send(WatchEvent(type: .finish, roundId: round.id, hole: hole))
+        send(WatchEvent(type: .finish, roundId: round.id, hole: hole, t: Self.now))
         endWorkoutIfRoundOver()
     }
 
