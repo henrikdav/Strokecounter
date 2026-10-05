@@ -21,6 +21,8 @@
     --sand: #E3D5AC;
     --flag: #C4372D;
     --under: #24763F;
+    --under-tint: #E3EEE3;   /* backgrounds of net badges on the home screen */
+    --over-tint: #FBE8E6;
     --safe-t: env(safe-area-inset-top, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
     color-scheme: light;
@@ -181,8 +183,49 @@
   .rm { grid-column: 1; color: var(--mute); font-size: 14px; }
   .rt { grid-column: 2; grid-row: 1 / span 2; text-align: right; color: var(--mute); font-size: 13px; font-weight: 600; }
   .rt b { display: block; font-size: 36px; line-height: 1; color: var(--fairway-deep); font-weight: 800; font-variant-numeric: tabular-nums; }
-  .round-del { width: 44px; border: 0; background: none; color: var(--mute); font-size: 18px; }
   .empty { color: var(--mute); padding: 24px 4px; font-size: 17px; }
+
+  /* Home screen: stats, the round in progress, past rounds (swipe left to delete), settings behind the gear */
+  .icon-btn { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%;
+              background: var(--white); border: 1px solid var(--line); color: var(--fairway); }
+  .icon-btn svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .stats { display: flex; justify-content: space-between; gap: 8px; margin: 0 0 14px; padding: 14px 16px;
+           background: var(--white); border: 1px solid var(--line); border-radius: 16px; }
+  .stat b { display: block; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .stat b.under { color: var(--fairway); }
+  .stat b.over { color: var(--flag); }
+  .stat span { font-size: 12px; font-weight: 600; color: var(--mute); }
+  .continue { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin: 0 0 18px;
+              padding: 16px; border: 0; border-radius: 16px; background: var(--fairway); color: var(--white); text-align: left; }
+  .continue-text { min-width: 0; }
+  .continue-kicker { display: block; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--sand); }
+  .continue-name { display: block; margin-top: 2px; font-size: 18px; font-weight: 800; overflow-wrap: anywhere; }
+  .continue-meta { display: block; margin-top: 1px; font-size: 13px; color: var(--line); }
+  .continue-go { flex: none; padding: 8px 14px; border-radius: 999px; background: var(--sand); color: var(--fairway-deep);
+                 font-size: 14px; font-weight: 700; }
+  .past-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
+  .past-head h2 { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); }
+  .past-head span { font-size: 11px; color: var(--mute); }
+  .past-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .past { position: relative; overflow: hidden; border-radius: 14px; }
+  .past-del { position: absolute; top: 0; right: 0; bottom: 0; width: 88px; border: 0; border-radius: 0 14px 14px 0;
+              background: var(--flag); color: var(--white); font-size: 13px; font-weight: 700; }
+  .past-card { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px;
+               background: var(--white); border: 1px solid var(--line); border-radius: 14px; text-align: left;
+               touch-action: pan-y; transition: transform .18s ease; }
+  .past-card.open { transform: translateX(-88px); }
+  .past-card.dragging { transition: none; }
+  .past-text { flex: 1; min-width: 0; }
+  .past-name { display: block; font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .past-meta { display: block; margin-top: 1px; font-size: 12px; color: var(--mute); }
+  .net-badge { flex: none; padding: 5px 11px; border-radius: 999px; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .net-badge.under { color: var(--fairway); background: var(--under-tint); }
+  .net-badge.over { color: var(--flag); background: var(--over-tint); }
+  .net-badge.neutral { padding: 4px 10px; color: var(--mute); background: var(--paper); border: 1px solid var(--line); font-size: 12px; font-weight: 700; }
+  .settings-list { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; }
+  .settings-item { min-height: 52px; padding: 0 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper);
+                   color: var(--ink); font-size: 17px; font-weight: 700; text-align: left; }
+  @media (prefers-reduced-motion: reduce) { .past-card { transition: none; } }
 
   .primary { width: 100%; min-height: 58px; border-radius: 16px; border: 0; background: var(--fairway); color: var(--white);
              font-weight: 800; font-size: 20px; box-shadow: 0 3px 0 var(--fairway-deep); }
@@ -889,39 +932,134 @@ function chipsHtml(clubs, active, action) {
   ).join('');
 }
 
+/* ---------- Home screen ---------- */
+
+const shortDateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
+const GEAR_ICON = '<svg width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.63.82 1.1 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+let openRowId = null;   // past round slid open to show its Delete button
+
+// Net to par over a round's played holes, from the same hole results the scorecard uses. Null when the round has
+// no playing handicap and hole index, so there is no net to show.
+function roundNet(round) {
+  if (strokesReceived(round, round.startHole || 1) === null) return null;
+  return sumScores(holeNumbers(round).map(h => holeScore(round, h, true))).net;
+}
+
+// The round's own name, else its course's, else its date.
+function roundTitle(round) {
+  const course = round.courseId ? db.courses.find(c => c.id === round.courseId) : null;
+  return round.name || (course && course.name) || dateFmt.format(round.createdAt);
+}
+
+function relativeDay(t) {
+  const start = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((start(new Date()) - start(new Date(t))) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days > 1 && days < 7) return `${days} days ago`;
+  return shortDateFmt.format(t);
+}
+
+function holesText(round, played) {
+  return played === round.holeCount ? `${round.holeCount} holes` : `${played} of ${round.holeCount} holes`;
+}
+
+// One decimal for averages: "−1.2", "+0.5", "E".
+function fmtAvgToPar(v) {
+  if (v === null) return '–';
+  const r = Math.round(v * 10) / 10;
+  if (r === 0) return 'E';
+  return (r > 0 ? '+' : '−') + Math.abs(r).toFixed(1);
+}
+
+// Stats over finished rounds: how many were played this calendar month, and the average and best net to par of
+// those with a net result (playing handicap and hole index). Rounds without one count only in the first number.
+function homeStats(finished) {
+  const now = new Date();
+  const month = finished.filter(r => {
+    const d = new Date(r.createdAt);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }).length;
+  const nets = finished.map(roundNet).filter(n => n !== null);
+  return {
+    month,
+    avg: nets.length ? nets.reduce((a, b) => a + b, 0) / nets.length : null,
+    best: nets.length ? Math.min(...nets) : null
+  };
+}
+
+function netBadge(net) {
+  if (net === null) return '';
+  return `<span class="net-badge ${net > 0 ? 'over' : 'under'}" aria-label="Net ${fmtToPar(net)}">${fmtToPar(net)}</span>`;
+}
+
 function renderList() {
   const rounds = [...db.rounds].sort((a, b) => b.createdAt - a.createdAt);
-  const items = rounds.map(r => {
+  // The newest round not finished is the one to continue. Older unfinished rounds (rounds from before rounds
+  // could be finished, say) stay in the list below, marked as not finished, so nothing disappears.
+  const current = rounds.find(r => !isFinished(r)) || null;
+  const past = rounds.filter(r => r !== current);
+  const stats = homeStats(rounds.filter(isFinished));
+  if (openRowId && !past.some(r => r.id === openRowId)) openRowId = null;
+
+  const statsHtml = `
+        <div class="stats">
+          <div class="stat"><b>${stats.month}</b><span>${stats.month === 1 ? 'round' : 'rounds'} this month</span></div>
+          <div class="stat"><b class="${stats.avg === null ? '' : toParClass(Math.round(stats.avg * 10) / 10)}">${fmtAvgToPar(stats.avg)}</b><span>avg net to par</span></div>
+          <div class="stat"><b class="${toParClass(stats.best)}">${fmtToPar(stats.best)}</b><span>best net to par</span></div>
+        </div>`;
+
+  let currentHtml = '';
+  if (current) {
+    const { played } = roundTotals(current);
+    const started = relativeDay(current.createdAt) === 'Today'
+      ? timeFmt.format(current.createdAt)
+      : `${relativeDay(current.createdAt).toLowerCase()} ${timeFmt.format(current.createdAt)}`;
+    currentHtml = `
+        <button class="continue" data-action="open-round" data-id="${esc(current.id)}">
+          <span class="continue-text">
+            <span class="continue-kicker">In progress · hole ${current.currentHole}</span>
+            <span class="continue-name">${esc(roundTitle(current))}</span>
+            <span class="continue-meta">Started ${esc(started)} · ${played} of ${current.holeCount} holes</span>
+          </span>
+          <span class="continue-go" aria-hidden="true">Continue</span>
+        </button>`;
+  }
+
+  const items = past.map(r => {
     const { total, played } = roundTotals(r);
-    const when = (r.name ? dateFmt.format(r.createdAt) + ' ' : '') + timeFmt.format(r.createdAt);
+    const badge = isFinished(r) ? netBadge(roundNet(r)) : '<span class="net-badge neutral">Not finished</span>';
+    const open = r.id === openRowId;
     return `
-      <li class="round-item">
-        <button class="round-open" data-action="open-round" data-id="${esc(r.id)}">
-          <span class="rn">${esc(roundLabel(r))}</span>
-          <span class="rm">${esc(when)}, ${played} of ${r.holeCount} holes</span>
-          <span class="rt"><b>${total}</b>strokes</span>
-        </button>
-        <button class="round-del" data-action="delete-round" data-id="${esc(r.id)}" aria-label="Delete round">✕</button>
-      </li>`;
+          <li class="past">
+            <button class="past-del" data-action="delete-round" data-id="${esc(r.id)}" aria-label="Delete round ${esc(roundTitle(r))}">Delete</button>
+            <button class="past-card${open ? ' open' : ''}" data-action="open-round" data-id="${esc(r.id)}">
+              <span class="past-text">
+                <span class="past-name">${esc(roundTitle(r))}</span>
+                <span class="past-meta">${esc(relativeDay(r.createdAt))} · ${holesText(r, played)} · ${total} ${total === 1 ? 'stroke' : 'strokes'}</span>
+              </span>
+              ${badge}
+            </button>
+          </li>`;
   }).join('');
 
   return `
     <div class="screen">
-      <header class="top"><h1>Stroke Counter</h1></header>
+      <header class="top">
+        <h1>Stroke Counter</h1>
+        <button class="icon-btn" data-action="settings" aria-label="Settings">${GEAR_ICON}</button>
+      </header>
       <main class="scroll">
         ${updateAvailable ? '<button class="update-banner" data-action="hard-reload">A new version is available. Tap to update.</button>' : ''}
-        ${rounds.length
-          ? `<ul class="rounds">${items}</ul>`
-          : `<p class="empty">No rounds yet. Start a new one when you're on the first tee.</p>`}
+        ${statsHtml}
+        ${currentHtml}
+        ${past.length ? `
+        <div class="past-head"><h2>Past rounds</h2><span>Swipe left to delete</span></div>
+        <ul class="past-list">${items}</ul>` : ''}
+        ${rounds.length ? '' : `<p class="empty">No rounds yet. Start a new one when you're on the first tee.</p>`}
       </main>
       <footer class="dock">
         <button class="primary" data-action="new-round">New round</button>
-        <div class="linkrow">
-          <button class="link" data-action="courses">My courses</button>
-          <button class="link" data-action="edit-bag">My bag</button>
-        </div>
-        <button class="link" data-action="export">Copy all data as JSON</button>
-        <button class="link" data-action="restore">Restore from backup</button>
       </footer>
     </div>`;
 }
@@ -1537,6 +1675,21 @@ function renderSheet() {
         <textarea class="json-box" id="import-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
         <button class="primary" data-action="do-import">Import</button>
         <button class="link" data-action="close-sheet">Cancel</button>
+      </div>`;
+  }
+
+  if (sheet.type === 'settings') {
+    return `
+      <div class="backdrop" data-action="close-sheet"></div>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Settings">
+        <h2>Settings</h2>
+        <div class="settings-list">
+          <button class="settings-item" data-action="courses">My courses</button>
+          <button class="settings-item" data-action="edit-bag">My bag</button>
+          <button class="settings-item" data-action="export">Copy all data as JSON</button>
+          <button class="settings-item" data-action="restore">Restore from backup</button>
+        </div>
+        <button class="link" data-action="close-sheet">Close</button>
       </div>`;
   }
 
@@ -2497,6 +2650,10 @@ app.addEventListener('keydown', event => {
 });
 
 app.addEventListener('click', event => {
+  // A drag on a past round ends with a click; it only moves the row. With a row slid open, a tap anywhere but
+  // its Delete button just closes it.
+  if (performance.now() < swallowClickUntil) return;
+  if (openRowId && !event.target.closest('.past-del')) { closeOpenRow(); return; }
   const el = event.target.closest('[data-action]');
   if (!el || el.disabled) return;
   const action = el.dataset.action;
@@ -2510,16 +2667,18 @@ app.addEventListener('click', event => {
     case 'delete-round':
       if (confirm('Delete this round? This cannot be undone.')) {
         db.rounds = db.rounds.filter(r => r.id !== el.dataset.id);
+        openRowId = null;
         saveDb();
         render();
       }
       break;
-    case 'export': exportData(); break;
+    case 'export': exportData(); if (sheet && sheet.type === 'settings') { sheet = null; render(); } break;
+    case 'settings': sheet = { type: 'settings' }; render(); break;
     case 'restore': sheet = { type: 'restore' }; render(); break;
     case 'check-restore': checkRestore(document.getElementById('restore-text').value); break;
     case 'confirm-restore': confirmRestore(); break;
 
-    case 'courses': view = 'courses'; render(); break;
+    case 'courses': view = 'courses'; sheet = null; render(); break;
     case 'courses-back': view = 'list'; render(); break;
     case 'new-course': startNewCourse(); break;
     case 'edit-course': startEditCourse(el.dataset.id); break;
@@ -2818,6 +2977,67 @@ app.addEventListener('keydown', event => {
   knob.classList.remove('settle');
   moveKnob(knob, x, max);
   if (x >= max - 2) completeSlide(knob);
+});
+
+/* ---------- Swipe a past round to delete ---------- */
+
+// On the home screen a past round slides left with the finger to show its Delete button (88 px). Released past
+// halfway it stays open, otherwise it springs back. Vertical drags scroll the list as usual (touch-action: pan-y).
+const ROW_OPEN = 88;
+let rowSwipe = null;   // { id, card, pointer, startX, startY, base, x, moved }
+let swallowClickUntil = 0;   // the click that ends a drag must not open the round
+
+function closeOpenRow() {
+  const card = app.querySelector('.past-card.open');
+  if (card) card.classList.remove('open');
+  openRowId = null;
+}
+
+app.addEventListener('pointerdown', event => {
+  const card = event.target.closest('.past-card');
+  if (!card || view !== 'list' || sheet) { rowSwipe = null; return; }
+  const base = card.classList.contains('open') ? -ROW_OPEN : 0;
+  rowSwipe = { id: card.dataset.id, card, pointer: event.pointerId, startX: event.clientX, startY: event.clientY, base, x: base, moved: false };
+});
+
+app.addEventListener('pointermove', event => {
+  const s = rowSwipe;
+  if (!s || event.pointerId !== s.pointer) return;
+  const dx = event.clientX - s.startX;
+  const dy = event.clientY - s.startY;
+  if (!s.moved) {
+    if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { rowSwipe = null; return; }   // a scroll, not a swipe
+    if (Math.abs(dx) < 8) return;
+    s.moved = true;
+    if (openRowId && openRowId !== s.id) closeOpenRow();
+    s.card.classList.add('dragging');
+    try { s.card.setPointerCapture(event.pointerId); } catch (err) { /* dragging works without capture */ }
+  }
+  s.x = Math.max(-ROW_OPEN, Math.min(0, s.base + dx));
+  s.card.style.transform = `translateX(${s.x}px)`;
+});
+
+function endRowSwipe(event) {
+  const s = rowSwipe;
+  if (!s || event.pointerId !== s.pointer || !s.moved) return;
+  s.card.classList.remove('dragging');
+  s.card.style.transform = '';
+  const open = event.type !== 'pointercancel' && s.x < -ROW_OPEN / 2;
+  s.card.classList.toggle('open', open);
+  openRowId = open ? s.id : null;
+  rowSwipe = null;
+  swallowClickUntil = performance.now() + 400;
+}
+app.addEventListener('pointerup', event => { endRowSwipe(event); if (rowSwipe && event.pointerId === rowSwipe.pointer) rowSwipe = null; });
+app.addEventListener('pointercancel', endRowSwipe);
+
+// Keyboard and screen reader users reach Delete by focus; it slides the row open so the button is visible.
+app.addEventListener('focusin', event => {
+  const del = event.target.closest && event.target.closest('.past-del');
+  if (!del || openRowId === del.dataset.id) return;
+  closeOpenRow();
+  const card = del.parentElement.querySelector('.past-card');
+  if (card) { card.classList.add('open'); openRowId = del.dataset.id; }
 });
 
 /* ---------- Swipe between holes ---------- */
