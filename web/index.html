@@ -767,6 +767,9 @@ function updateLiveDistance() {
 
 function onGpsError(err) {
   gpsErrorCode = err.code;
+  // A denied watch is dead (iOS also reports this spuriously after resuming from the background), so clear it and
+  // let the next startGps() create a new one. Unavailable and timeout keep the watch running: it retries itself.
+  if (err.code === 1) stopGps();
   updateGps();
 }
 
@@ -820,6 +823,8 @@ function releaseWake() {
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && (view === 'round' || view === 'card')) {
+    // Always start a fresh watch on return: a watch that survived the background may no longer deliver fixes.
+    stopGps();
     startGps();
     requestWake();
   }
