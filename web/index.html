@@ -485,6 +485,10 @@ function saveDb() {
 let db = loadDb();
 let view = 'list';       // 'list' | 'round' | 'card' | 'courses' | 'course-edit'
 let roundId = null;
+// Where Back goes. A finished round opened from Past rounds starts on its scorecard ('list' below it), and a hole
+// opened from that scorecard goes back to it. Rounds opened to play (Continue) keep round -> scorecard -> round.
+let cardBackTo = 'round';   // 'round' | 'list'
+let roundBackTo = 'list';   // 'list' | 'card'
 let sheet = null;        // null | { type: 'new' | 'bag' | 'import' } | { type: 'stroke', index, draft? }
                          // draft = { club, mods: { chip, … }, note }: unsaved edits until Save
 let draft = null;        // course being edited: { id, name, count, all: [{ par, index }] x18,
@@ -1033,7 +1037,7 @@ function renderList() {
     return `
           <li class="past">
             <button class="past-del" data-action="delete-round" data-id="${esc(r.id)}" aria-label="Delete round ${esc(roundTitle(r))}">Delete</button>
-            <button class="past-card${open ? ' open' : ''}" data-action="open-round" data-id="${esc(r.id)}">
+            <button class="past-card${open ? ' open' : ''}" data-action="open-past" data-id="${esc(r.id)}">
               <span class="past-text">
                 <span class="past-name">${esc(roundTitle(r))}</span>
                 <span class="past-meta">${esc(relativeDay(r.createdAt))} · ${holesText(r, played)} · ${total} ${total === 1 ? 'stroke' : 'strokes'}</span>
@@ -1247,7 +1251,7 @@ function renderRound() {
   return `
     <div class="screen">
       <header class="top">
-        <button class="ghost" data-action="back">‹ Home</button>
+        <button class="ghost" data-action="back">${roundBackTo === 'card' ? '‹ Scorecard' : '‹ Home'}</button>
         <div class="gps wait" id="gps">Searching GPS…</div>
         <button class="ghost" data-action="scorecard">Scorecard</button>
       </header>
@@ -2354,6 +2358,8 @@ function openRound(id) {
   roundId = id;
   view = 'round';
   sheet = null;
+  cardBackTo = 'round';
+  roundBackTo = 'list';
   // A finished round is only looked at: it does not become the round to continue, the watch keeps its round,
   // and GPS stays off.
   if (isFinished(getRound())) { render(); return; }
@@ -2362,6 +2368,21 @@ function openRound(id) {
   saveDb();
   startGps();
   requestWake();
+  render();
+}
+
+// A finished round in Past rounds opens on its scorecard; Back goes home. An unfinished one (only rounds from before
+// rounds could be finished) opens on its holes as before.
+function openPastRound(id) {
+  const round = db.rounds.find(r => r.id === id);
+  if (!round) return;
+  if (!isFinished(round)) { openRound(id); return; }
+  roundId = id;
+  sheet = null;
+  view = 'card'; cardTab = 'score'; cardScroll = { score: 0, clubs: 0 };
+  cardOpen = new Set(); cardOpenClubs = new Set();
+  cardBackTo = 'list';
+  roundBackTo = 'list';
   render();
 }
 
@@ -2664,6 +2685,7 @@ app.addEventListener('click', event => {
     case 'hard-reload': hardReload(); break;
     case 'create-round': createRound(); break;
     case 'open-round': openRound(el.dataset.id); break;
+    case 'open-past': openPastRound(el.dataset.id); break;
     case 'delete-round':
       if (confirm('Delete this round? This cannot be undone.')) {
         db.rounds = db.rounds.filter(r => r.id !== el.dataset.id);
@@ -2741,10 +2763,16 @@ app.addEventListener('click', event => {
       break;
     case 'save-stroke': saveStrokeDraft(); break;
     case 'toggle-club': toggleClub(el.dataset.club); break;
-    case 'back': closeRound(); break;
+    case 'back':
+      if (roundBackTo === 'card') { roundBackTo = 'list'; view = 'card'; render(); }
+      else closeRound();
+      break;
     case 'scorecard':
+      // From a hole opened on a Past rounds scorecard this is just the way back to that scorecard.
+      if (roundBackTo === 'card') { roundBackTo = 'list'; view = 'card'; render(); break; }
       view = 'card'; cardTab = 'score'; cardScroll = { score: 0, clubs: 0 };
       cardOpen = new Set(); cardOpenClubs = new Set();
+      cardBackTo = 'round';
       render();
       break;
     case 'toggle-hole': toggleCardRow(cardOpen, Number(el.dataset.hole), `tr[data-action="toggle-hole"][data-hole="${el.dataset.hole}"]`); break;
@@ -2758,7 +2786,10 @@ app.addEventListener('click', event => {
       if (next) next.scrollTop = cardScroll[cardTab];
       break;
     }
-    case 'card-back': view = 'round'; render(); break;
+    case 'card-back':
+      if (cardBackTo === 'list') closeRound();
+      else { view = 'round'; render(); }
+      break;
     case 'edit-handicap': if (!isFinished(round)) { sheet = { type: 'handicap' }; render(); } break;
     case 'export-round': sheet = { type: 'export', text: roundExportText(round) }; render(); break;
     case 'copy-export': copyText(sheet.text); break;
@@ -2780,6 +2811,7 @@ app.addEventListener('click', event => {
     case 'goto-hole':
       round.currentHole = Number(el.dataset.hole);
       view = 'round';
+      if (cardBackTo === 'list') roundBackTo = 'card';
       saveDb();
       render();
       break;
