@@ -1236,8 +1236,9 @@ function holeScore(round, h, hasExtras) {
   const diff = info && played ? shown - info.par : null;
   // Stableford: 2 points for net par, +1 per stroke better, -1 per stroke worse, never below 0.
   const points = hasExtras && info && played ? Math.max(0, 2 + info.par - (shown - extra)) : null;
-  // Net: strokes minus handicap strokes, compared with par.
-  const net = hasExtras && info && played ? shown - extra - info.par : null;
+  // Net: strokes minus handicap strokes, compared with par, capped at net double bogey (+2) as the handicap rules
+  // do. Strokes beyond that don't count against net; the gross result and the stroke count stay as played.
+  const net = hasExtras && info && played ? Math.min(shown - extra - info.par, 2) : null;
   return { h, list, info, extra, played, shown, diff, net, points };
 }
 
