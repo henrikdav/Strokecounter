@@ -124,12 +124,10 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
 
     // MARK: Round lifecycle (workout session and GPS)
 
-    // The round is over once its last hole is finished, here ("Finish round") or on the phone (Done on the last
-    // hole). That is the app's existing end of a round; there is no separate end-round action.
+    // The round is over when it is finished on the phone's scorecard. Only the phone finishes (and unlocks) a
+    // round; finishing the last hole does not. A finished round arrives with every hole locked, so it is read-only.
     var isRoundFinished: Bool {
-        guard let round, let last = round.holes.last?.number else { return false }
-        return round.locked.contains(last) ||
-            outbox.contains { $0.type == .finish && $0.roundId == round.id && $0.hole == last }
+        round?.finished == true
     }
 
     // The hole screen is showing (app in the foreground): start the golf workout for this round if it is not

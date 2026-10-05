@@ -23,7 +23,8 @@ struct FinishHoleView: View {
                 path = []
             } label: {
                 HStack(spacing: 4) {
-                    Text(last ? "Finish round" : "Next hole")
+                    // The watch never finishes the round itself; that is done on the phone's scorecard.
+                    Text(last ? "Finish hole" : "Next hole")
                     if !last { Image(systemName: "chevron.right") }
                 }
                 .font(.system(size: 14, weight: .bold))

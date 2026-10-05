@@ -27,6 +27,7 @@ struct Snapshot: Codable, Equatable {
         let locked: [Int]
         let strokes: [String: [Stroke]]   // keyed by hole number
         let removed: [String]
+        var finished: Bool? = nil          // finished on the phone's scorecard; missing from older phone versions
     }
 
     let round: Round?

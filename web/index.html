@@ -168,6 +168,8 @@
                  border-radius: 999px; background: var(--fairway); color: var(--white); font-size: 30px; font-weight: 800;
                  box-shadow: 0 2px 0 var(--fairway-deep); touch-action: none; cursor: grab; }
   .unlock-knob.settle { transition: transform .25s ease-out; }
+  .round-end { margin: 18px 0 8px; }
+  .round-end .hint { margin-bottom: 10px; }
 
   /* Lists (rounds and courses) */
   .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 14px; -webkit-overflow-scrolling: touch; }
@@ -372,6 +374,7 @@ const FIX_MAX_AGE_MS = 30000;
                holes: { "1": [stroke, ...], ... },           // keyed by real hole number (startHole ...)
                locked: [1, 2, ...],                           // holes finished with Done; their controls are locked
                lockedAt: { "1": t, ... },                     // when each hole was locked (ms), to judge late watch syncs
+               finished, finishedAt,                          // finished on the scorecard: read-only until unlocked there
                tee,                                           // name of the tee played, missing for older rounds
                notes: { "3": "text" }, note,                  // optional comments per hole and for the round
                holePositions: { "3": { lat, lng, acc, t } },  // where the hole (cup) was on each hole that day, optional
@@ -601,13 +604,32 @@ function markButton(round, hole) {
 function holeNote(round, hole) {
   return (round.notes && round.notes[hole]) || '';
 }
+// A slide-to-confirm control: the knob must be dragged all the way across (see "Unlock slider" below).
+function slider(action, label, ariaLabel) {
+  return `<div class="unlock">
+          <span class="unlock-label" aria-hidden="true">${label}</span>
+          <span class="unlock-knob" role="slider" tabindex="0" data-slide="${action}" aria-label="${ariaLabel}"
+                aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">›</span>
+        </div>`;
+}
+
 function noteButton(round, hole) {
   const has = !!holeNote(round, hole);
   return `<button class="note-btn${has ? ' has' : ''}" data-action="hole-note" aria-label="${has ? 'Note' : 'Add a note'} for hole ${hole}">${NOTE_ICON}</button>`;
 }
 
+// A round finished on the scorecard is read-only, every hole as if locked, until it is unlocked again there.
+// It is no longer the round to continue; rounds without the flag are in progress.
+function isFinished(round) {
+  return round.finished === true;
+}
+
 // Holes finished with Done are locked: their stroke controls are replaced by an unlock slider.
 function isLocked(round, hole) {
+  return isFinished(round) || isHoleLocked(round, hole);
+}
+
+function isHoleLocked(round, hole) {
   return Array.isArray(round.locked) && round.locked.includes(hole);
 }
 
@@ -621,13 +643,15 @@ function clearHoleLock(round, hole) {
   if (round.lockedAt) delete round.lockedAt[hole];
 }
 
-// A change from the watch made at time t (ms) is refused when the hole was already locked then. A change made
-// before the lock but delivered after it still counts, so a slow sync cannot lose a stroke that was played.
+// A change from the watch made at time t (ms) is refused when the round was finished or the hole was locked by
+// then. A change made before but delivered after still counts, so a slow sync cannot lose a stroke that was played.
 // Holes locked before lock times were kept count as locked from the start.
 function refusedByLock(round, hole, t) {
-  if (!isLocked(round, hole)) return false;
+  if (!Number.isFinite(t)) return isLocked(round, hole);
+  if (isFinished(round) && t >= round.finishedAt) return true;
+  if (!isHoleLocked(round, hole)) return false;
   const since = round.lockedAt && Number.isFinite(round.lockedAt[hole]) ? round.lockedAt[hole] : 0;
-  return !Number.isFinite(t) || t >= since;
+  return t >= since;
 }
 
 // Label next to the hole number: "of 18", "front 9" or "back 9".
@@ -822,7 +846,7 @@ function releaseWake() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && (view === 'round' || view === 'card')) {
+  if (document.visibilityState === 'visible' && (view === 'round' || view === 'card') && getRound() && !isFinished(getRound())) {
     // Always start a fresh watch on return: a watch that survived the background may no longer deliver fixes.
     stopGps();
     startGps();
@@ -1102,17 +1126,20 @@ function renderRound() {
       <ol class="strokes">
         ${rows || '<li class="hint-empty">Tap +1 stroke right after each shot, while you are still standing where you hit from. Distance is measured to your next stroke.</li>'}
       </ol>
-      ${locked ? `
+      ${isFinished(round) ? `
+      <footer class="dock">
+        <div class="locked-row">
+          <p class="unlock-hint">This round is finished. Slide to unlock it if you need to change anything.</p>
+          ${holeNote(round, hole) ? noteButton(round, hole) : ''}
+        </div>
+        ${slider('unlock-round', 'Unlock round', 'Slide all the way to unlock the round')}
+      </footer>` : locked ? `
       <footer class="dock">
         <div class="locked-row">
           <p class="unlock-hint">Hole ${hole} is done and locked. Slide to unlock if you need to change a stroke${holeNote(round, hole) ? ' or the note' : ''}.</p>
           ${holeNote(round, hole) ? noteButton(round, hole) : ''}
         </div>
-        <div class="unlock">
-          <span class="unlock-label" aria-hidden="true">Unlock</span>
-          <span class="unlock-knob" role="slider" tabindex="0" aria-label="Slide all the way to unlock hole ${hole}"
-                aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">›</span>
-        </div>
+        ${slider('unlock-hole', 'Unlock', `Slide all the way to unlock hole ${hole}`)}
       </footer>` : `
       <footer class="dock">
         <div class="chips">
@@ -1386,8 +1413,20 @@ function renderCard() {
     const label = hcp
       ? `Playing handicap ${hcp.base}` + (hcp.allowance !== 100 ? ` at ${hcp.allowance}% = ${adjustedHandicap(round)}` : '')
       : 'Add playing handicap';
-    hcpLine = `<p class="hcp-line"><button class="inline-btn" data-action="edit-handicap">${label}</button></p>`;
+    hcpLine = isFinished(round)
+      ? (hcp ? `<p class="hcp-line">${label}</p>` : '')
+      : `<p class="hcp-line"><button class="inline-btn" data-action="edit-handicap">${label}</button></p>`;
   }
+  // Finishing (or unlocking) the round lives here, below the scorecard, with the same slider as unlocking a hole.
+  const finishPart = isFinished(round)
+    ? `<div class="round-end">
+         <p class="hint"><strong>Round finished.</strong> It is read-only. Slide to unlock it if you need to change anything.</p>
+         ${slider('unlock-round', 'Unlock round', 'Slide all the way to unlock the round')}
+       </div>`
+    : `<div class="round-end">
+         <p class="hint">Done playing? Finishing the round makes it read-only and ends it on the watch. You can unlock it again here.</p>
+         ${slider('finish-round', 'Finish round', 'Slide all the way to finish the round')}
+       </div>`;
   const noIndexNote = round.handicap && hasInfo && !hasExtras
     ? '<p class="note">Extra strokes need a hole index on every hole played. Add it under My courses; it applies to new rounds.</p>'
     : '';
@@ -1420,8 +1459,8 @@ function renderCard() {
       </header>
       <p class="card-title card-head">${esc(roundLabel(round))}<small>${round.tee ? `${esc(round.tee)} tee · ` : ''}${esc(dateFmt.format(round.createdAt))} ${esc(timeFmt.format(round.createdAt))}</small></p>
       ${round.note
-        ? `<button class="round-note" data-action="round-note" aria-label="Edit round note"><span>${esc(round.note)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>`
-        : '<button class="inline-btn add-note" data-action="round-note">Add a note</button>'}
+        ? `<button class="round-note" data-action="round-note" aria-label="${isFinished(round) ? 'Read' : 'Edit'} round note"><span>${esc(round.note)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>`
+        : (isFinished(round) ? '' : '<button class="inline-btn add-note" data-action="round-note">Add a note</button>')}
       ${tabBar}
       <main class="scroll">
         ${cardTab === 'clubs' ? clubsTab : `
@@ -1440,6 +1479,7 @@ function renderCard() {
         </table>
         ${noIndexNote}
         ${hasInfo ? `<p class="note">Par and index were copied from the course when the round started. Gross is strokes minus par on holes you have played, and Net is the same after your extra strokes. E means even par. ${hasExtras ? 'Extra is the handicap strokes you get on each hole. Points are Stableford: 2 for net par, 3 for net birdie, 1 for net bogey, 0 for net double bogey or worse.' : 'Net and Points need a playing handicap and a hole index on every hole.'}</p>` : ''}`}
+        ${finishPart}
       </main>
     </div>`;
 }
@@ -1541,14 +1581,14 @@ function renderSheet() {
     const isHole = sheet.scope === 'hole';
     const text = isHole ? holeNote(round, sheet.hole) : (round.note || '');
     const title = isHole ? `Note for hole ${sheet.hole}` : 'Round note';
-    // A locked hole's note can be read but not changed, like its strokes.
-    if (isHole && isLocked(round, sheet.hole)) {
+    // A locked hole's note can be read but not changed, like its strokes; so can every note of a finished round.
+    if (isFinished(round) || (isHole && isLocked(round, sheet.hole))) {
       return `
       <div class="backdrop" data-action="close-sheet"></div>
       <div class="sheet" role="dialog" aria-modal="true" aria-label="${title}">
         <h2>${title}</h2>
         <p class="note-read">${esc(text)}</p>
-        <p class="hint">Hole ${sheet.hole} is locked. Unlock it to change the note.</p>
+        <p class="hint">${isFinished(round) ? 'The round is finished. Unlock it to change the note.' : `Hole ${sheet.hole} is locked. Unlock it to change the note.`}</p>
         <button class="link" data-action="close-sheet">Close</button>
       </div>`;
     }
@@ -2086,7 +2126,9 @@ function sendWatchSnapshot() {
         return { number: h, par: info ? info.par : null, index: info && Number.isInteger(info.index) ? info.index : null };
       }),
       currentHole: round.currentHole,
-      locked: round.locked || [],
+      // A finished round is sent with every hole locked, so the watch treats it as read-only throughout.
+      locked: isFinished(round) ? holeNumbers(round) : (round.locked || []),
+      finished: isFinished(round),
       strokes,
       removed: round.removedStrokeIds || []
     };
@@ -2137,7 +2179,8 @@ function applyWatchEvents(events) {
         changed = true;
       }
     } else if (e.type === 'finish') {
-      if (!isLocked(round, e.hole)) { setHoleLock(round, e.hole, Number.isFinite(e.t) ? e.t : Date.now()); changed = true; }
+      if (isFinished(round) && !(Number.isFinite(e.t) && e.t < round.finishedAt)) return;
+      if (!isHoleLocked(round, e.hole)) { setHoleLock(round, e.hole, Number.isFinite(e.t) ? e.t : Date.now()); changed = true; }
       const last = (round.startHole || 1) + round.holeCount - 1;
       if (round.currentHole === e.hole && e.hole < last) { round.currentHole = e.hole + 1; changed = true; }
     }
@@ -2158,6 +2201,9 @@ function openRound(id) {
   roundId = id;
   view = 'round';
   sheet = null;
+  // A finished round is only looked at: it does not become the round to continue, the watch keeps its round,
+  // and GPS stays off.
+  if (isFinished(getRound())) { render(); return; }
   db.activeRoundId = id;
   db.watchRoundId = id;
   saveDb();
@@ -2301,6 +2347,36 @@ function doneHole() {
   }
   saveDb();
   render();
+}
+
+// Finishing makes the round read-only and stops it being the one to continue; the snapshot that saveDb() sends
+// tells the watch, which ends its workout for the round. Only the phone can finish or unlock a round.
+function finishRound() {
+  const round = getRound();
+  if (!round || isFinished(round)) return;
+  round.finished = true;
+  round.finishedAt = Date.now();
+  if (db.activeRoundId === round.id) db.activeRoundId = null;
+  sheet = null;
+  stopGps();
+  releaseWake();
+  saveDb();
+  render();
+  toast('Round finished');
+}
+
+function unlockRound() {
+  const round = getRound();
+  if (!round || !isFinished(round)) return;
+  round.finished = false;
+  delete round.finishedAt;
+  db.activeRoundId = round.id;
+  db.watchRoundId = round.id;
+  startGps();
+  requestWake();
+  saveDb();
+  render();
+  toast('Round unlocked');
 }
 
 function unlockHole() {
@@ -2524,18 +2600,18 @@ app.addEventListener('click', event => {
       break;
     }
     case 'card-back': view = 'round'; render(); break;
-    case 'edit-handicap': sheet = { type: 'handicap' }; render(); break;
+    case 'edit-handicap': if (!isFinished(round)) { sheet = { type: 'handicap' }; render(); } break;
     case 'export-round': sheet = { type: 'export', text: roundExportText(round) }; render(); break;
     case 'copy-export': copyText(sheet.text); break;
     case 'hole-note': sheet = { type: 'note', scope: 'hole', hole: round.currentHole }; render(); focusNote(); break;
-    case 'round-note': sheet = { type: 'note', scope: 'round' }; render(); focusNote(); break;
+    case 'round-note': sheet = { type: 'note', scope: 'round' }; render(); if (!isFinished(round)) focusNote(); break;
     case 'save-note': {
       const input = document.getElementById('note-text');
       saveNote(input ? input.value : '');
       break;
     }
     case 'delete-note': saveNote(''); break;
-    case 'save-handicap': saveHandicap(); break;
+    case 'save-handicap': if (!isFinished(round)) saveHandicap(); break;
     case 'remove-handicap':
       round.handicap = null;
       sheet = null;
@@ -2689,8 +2765,15 @@ function moveKnob(knob, x, max) {
   const label = knob.parentElement.querySelector('.unlock-label');
   if (label) label.style.opacity = String(Math.max(0, 1 - x / max * 1.4));
 }
+// What a slider does once dragged all the way: unlock the hole, finish the round, or unlock the round.
+function completeSlide(knob) {
+  const action = knob.dataset.slide;
+  if (action === 'unlock-hole') unlockHole();
+  else if (action === 'finish-round') finishRound();
+  else if (action === 'unlock-round') unlockRound();
+}
 function releaseKnob(knob, x, max) {
-  if (x >= max - 2) { unlockHole(); return; }
+  if (x >= max - 2) { completeSlide(knob); return; }
   knob.classList.add('settle');
   moveKnob(knob, 0, max);
 }
@@ -2734,7 +2817,7 @@ app.addEventListener('keydown', event => {
   event.preventDefault();
   knob.classList.remove('settle');
   moveKnob(knob, x, max);
-  if (x >= max - 2) unlockHole();
+  if (x >= max - 2) completeSlide(knob);
 });
 
 /* ---------- Swipe between holes ---------- */

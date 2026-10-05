@@ -4,7 +4,8 @@ import WatchKit
 // Screen 1: the hole being played. The wide "+1 STROKE" button is the only way to log a stroke; the line under
 // it says exactly what a tap will log (club and armed modifiers). Bag and Modifier only change that selection.
 // Undo (top left) removes the hole's last stroke; finish (top right, or a swipe up) ends the hole.
-// A hole locked on the phone shows a notice instead, and only finish works; it updates live with the phone.
+// A hole locked on the phone shows a notice instead, and only finish works; a round finished on the phone is
+// read-only with nothing to do. Both update live with the phone.
 struct ActiveHoleView: View {
     @EnvironmentObject private var store: WatchStore
     let hole: Int
@@ -14,6 +15,7 @@ struct ActiveHoleView: View {
         let strokes = store.strokes(on: hole)
         let next = strokeSummary(club: store.club, mods: Array(store.armedMods))
         let locked = store.isLocked(hole)
+        let finished = store.isRoundFinished
         VStack(spacing: 6) {
             VStack(spacing: 0) {
                 Text("HOLE \(hole)")
@@ -31,7 +33,7 @@ struct ActiveHoleView: View {
                 .foregroundStyle(.secondary)
 
             if locked {
-                lockedNotice
+                lockedNotice(finished: finished)
             } else {
                 Button {
                     if let stroke = store.logStroke(club: store.club, hole: hole) {
@@ -67,9 +69,9 @@ struct ActiveHoleView: View {
         // Starts the round's workout session (and with it GPS) before the first tap, so a position is usually
         // ready when a stroke is logged.
         .onAppear { store.roundScreenShown() }
-        // Swipe up to finish the hole, as in the mockup.
+        // Swipe up to finish the hole, as in the mockup. Not on a finished round: nothing can change there.
         .gesture(DragGesture(minimumDistance: 30).onEnded { value in
-            if value.translation.height < -40 && abs(value.translation.width) < abs(value.translation.height) {
+            if !finished && value.translation.height < -40 && abs(value.translation.width) < abs(value.translation.height) {
                 path = [.finish(hole: hole)]
             }
         })
@@ -92,18 +94,19 @@ struct ActiveHoleView: View {
                 } label: {
                     Image(systemName: "checkmark")
                 }
+                .disabled(finished)
                 .accessibilityLabel("Finish hole")
             }
         }
     }
 
     // Shown in place of "+1 STROKE", the summary and Bag/Modifier. Not a button: there is nothing to do here.
-    private var lockedNotice: some View {
+    private func lockedNotice(finished: Bool) -> some View {
         VStack(spacing: 4) {
-            Image(systemName: "lock.fill")
+            Image(systemName: finished ? "flag.checkered" : "lock.fill")
                 .font(.system(size: 22))
                 .foregroundStyle(.secondary)
-            Text("Hole locked")
+            Text(finished ? "Round finished" : "Hole locked")
                 .font(.system(size: 18, weight: .bold))
             Text("Unlock on phone to edit")
                 .font(.system(size: 13))
