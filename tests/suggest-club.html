@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Suggest club</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// teeClubs(): the likely tee club per hole, sent to the watch as holes[].teeClub so it can preselect the club for
+// a hole's first stroke (#6).
+test(async () => {
+  const now = Date.now();
+  const pars = [4, 3, 5, 4, 4, 4, 4, 4, 4];
+  const tee = (club, t, id) => [{ id, t, club }, { id: id + 'b', t: t + 1, club: 'Putter' }];
+  const app = await loadApp({ inject: WATCH_BRIDGE, data: { courses: [{ id: 'c1', name: 'Home' }], activeClubs: ['Driver', '3W', 'Hybrid', '7i', 'PW', 'Putter'], rounds: [
+    // Two earlier rounds on the same course: hole 1 with 3W twice; hole 4 with Driver and 7i once each (tie).
+    makeRound('a', { courseId: 'c1', createdAt: now - 3 * DAY, holeData: holeData(pars), holes: {
+      1: tee('3W', 1000, 'a1'), 2: tee('Hybrid', 1100, 'a2'), 4: tee('Driver', 1200, 'a4'), 5: tee('Putter', 1300, 'a5') } }),
+    makeRound('b', { courseId: 'c1', createdAt: now - 2 * DAY, holeData: holeData(pars), holes: {
+      1: tee('3W', 2000, 'b1'), 2: [{ id: 'b2p', t: 2100, club: 'Penalty' }], 4: tee('7i', 2200, 'b4') } }),
+    // Another course: par 4s with Driver, a par 3 with 7i, and 5W, which is not in the bag.
+    makeRound('x', { createdAt: now - DAY, holeData: holeData(pars), holes: {
+      2: tee('7i', 3000, 'x2'), 6: tee('Driver', 3100, 'x6'), 7: tee('Driver', 3200, 'x7'), 8: tee('5W', 3300, 'x8') } }),
+    makeRound('r', { courseId: 'c1', createdAt: now, holeData: holeData(pars), holes: {} })
+  ], activeRoundId: 'r', watchRoundId: 'r' } });
+  const clubs = id => app.E(`teeClubs(db.rounds.find(r => r.id === '${id}'))`);
+
+  let t = clubs('r');
+  ok('same hole on the same course wins: 3W on hole 1', t[1] === '3W', JSON.stringify(t));
+  ok('a tie goes to the club used last: 7i on hole 4', t[4] === '7i', JSON.stringify(t));
+  ok('a penalty first does not count: Hybrid on hole 2, not the newer 7i from the par 3 on another course', t[2] === 'Hybrid', JSON.stringify(t));
+  ok('putter off the tee never counts; falls back to par 4s on any course', t[5] === 'Driver', JSON.stringify(t));
+  ok('no par 5 history: hole 3 is left out', !(3 in t), JSON.stringify(t));
+  ok('clubs not in the bag never count (5W on hole 8 of another course)', t[8] === 'Driver', JSON.stringify(t));
+
+  await wait(400);
+  const snap = JSON.parse(posted.filter(m => m.type === 'snapshot').at(-1).json);
+  ok('the snapshot carries teeClub per hole, null without history',
+    snap.round.holes[0].teeClub === '3W' && snap.round.holes[2].teeClub === null && snap.round.holes.every(h => 'teeClub' in h), JSON.stringify(snap.round.holes.map(h => h.teeClub)));
+
+  // The round being played counts for same par: Hybrid twice today ties 3W on par 4s and is the newer.
+  const today = { 6: tee('Hybrid', now, 'r6'), 7: tee('Hybrid', now + 10, 'r7') };
+  app.E(`db.rounds = db.rounds.filter(r => r.id !== 'x'); db.rounds.find(r => r.id === 'r').holes = ${JSON.stringify(today)};`);
+  t = clubs('r');
+  ok('the current round counts for same par', t[8] === 'Hybrid', JSON.stringify(t));
+
+  app.E("db.rounds.find(r => r.id === 'r').holeData = {};");
+  t = clubs('r');
+  ok('without course data only the same hole counts', t[1] === '3W' && !(7 in t), JSON.stringify(t));
+});
+</script>

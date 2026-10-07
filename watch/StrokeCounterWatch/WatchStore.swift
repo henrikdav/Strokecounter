@@ -7,7 +7,7 @@ import Foundation
 // The protocol is described in docs/watch-sync.md.
 final class WatchStore: ObservableObject {
     @Published private(set) var state: RoundState
-    @Published var lastClub: String?
+    @Published private(set) var pickedClub: RoundState.PickedClub?
     @Published var armedMods: Set<Modifier> = []
     // A snapshot came from a newer iPhone app than this watch app understands. It is ignored (the round already
     // here keeps working, and events sent from here are still accepted) and the watch asks to be updated.
@@ -24,7 +24,7 @@ final class WatchStore: ObservableObject {
         let snapshot = defaults.data(forKey: "snapshot").flatMap { try? JSONDecoder().decode(Snapshot.self, from: $0) }
         let outbox = defaults.data(forKey: "outbox").flatMap { try? JSONDecoder().decode([WatchEvent].self, from: $0) } ?? []
         state = RoundState(snapshot: snapshot, outbox: outbox)
-        lastClub = defaults.string(forKey: "lastClub")
+        pickedClub = defaults.data(forKey: "pickedClub").flatMap { try? JSONDecoder().decode(RoundState.PickedClub.self, from: $0) }
         sync.onSnapshot = { [weak self] json in self?.receive(snapshotJSON: json) }
         sync.outbox = { [weak self] in self?.state.outbox ?? [] }
         session.onLateFix = { [weak self] strokeId, roundId, hole, position in
@@ -56,15 +56,15 @@ final class WatchStore: ObservableObject {
 
     func shotDistance(on hole: Int) -> RoundState.ShotDistance { state.shotDistance(on: hole, fix: freshFix) }
 
-    // The club the next stroke is logged with: the one picked here last, else the phone's.
-    var club: String { lastClub ?? state.phoneClub ?? bag.first ?? "Driver" }
+    // The club the next stroke on the hole is logged with (RoundState.club(on:picked:)).
+    func club(on hole: Int) -> String { state.club(on: hole, picked: pickedClub) }
 
     // MARK: Actions
 
-    // Picks the club for the next stroke without logging anything, like arming a modifier.
-    func selectClub(_ club: String) {
-        lastClub = club
-        defaults.set(club, forKey: "lastClub")
+    // Picks the club for the next stroke on the hole without logging anything, like arming a modifier.
+    func selectClub(_ club: String, hole: Int) {
+        pickedClub = RoundState.PickedClub(club: club, roundId: state.round?.id, hole: hole, t: Self.now)
+        defaults.set(try? JSONEncoder().encode(pickedClub), forKey: "pickedClub")
     }
 
     // Logs a stroke with the club and the armed modifiers, which then reset like on the phone. Never waits for
@@ -76,7 +76,6 @@ final class WatchStore: ObservableObject {
         guard let event = change({ $0.logStroke(id: id, club: club, mods: armedMods, hole: hole, t: Self.now, position: fix) }),
               let roundId = state.round?.id else { return nil }
         if fix == nil { session.awaitFix(strokeId: id, roundId: roundId, hole: hole) } else { session.stopAwaitingFix() }
-        selectClub(club)
         armedMods = []
         return event.stroke
     }

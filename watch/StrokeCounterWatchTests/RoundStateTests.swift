@@ -10,14 +10,16 @@ final class RoundStateTests: XCTestCase {
     // A snapshot as the phone sends it: nine par 4s, round "r", strokes keyed by hole number.
     private func snapshotJSON(roundId: String? = "r", currentHole: Int = 1, locked: [Int] = [], finished: Bool? = nil,
                               strokes: [Int: [[String: Any]]] = [:], removed: [String] = [], v: Int? = 2,
-                              extra: [Int: Int] = [:], marked: [Int: [String: Double]] = [:]) -> String {
-        var snapshot: [String: Any] = ["bag": ["Driver", "7i", "Putter"], "club": "7i"]
+                              extra: [Int: Int] = [:], marked: [Int: [String: Double]] = [:],
+                              bag: [String] = ["Driver", "7i", "Putter"], pars: [Int: Int] = [:], tee: [Int: String] = [:]) -> String {
+        var snapshot: [String: Any] = ["bag": bag, "club": "7i"]
         if let v { snapshot["v"] = v }
         if let roundId {
             var round: [String: Any] = [
                 "id": roundId, "name": "Test", "currentHole": currentHole, "locked": locked, "removed": removed,
                 "holes": (1...9).map { n -> [String: Any] in
-                    var hole: [String: Any] = ["number": n, "par": 4, "index": n]
+                    var hole: [String: Any] = ["number": n, "par": pars[n] ?? 4, "index": n]
+                    if let club = tee[n] { hole["teeClub"] = club }
                     if let e = extra[n] { hole["extra"] = e }
                     if let m = marked[n] { hole["position"] = m }
                     return hole
@@ -341,5 +343,47 @@ final class RoundStateTests: XCTestCase {
         XCTAssertEqual(meters(pos(59), pos(59.001)), 111.19, accuracy: 0.05)
         XCTAssertEqual(formatDistance(0.4, approx: false), "<1")
         XCTAssertEqual(formatDistance(125.6, approx: true), "≈ 126")
+    }
+
+    // MARK: Suggested club (#6)
+
+    func testTheFirstStrokeUsesThePhonesTeeClub() {
+        let s = state(snapshotJSON(bag: ["Driver", "3W", "7i", "Putter"], tee: [1: "3W"]))
+        XCTAssertEqual(s.club(on: 1, picked: nil), "3W")
+    }
+
+    func testWithoutHistoryDriverOrSevenIronOnAParThree() {
+        let s = state(snapshotJSON(bag: ["Driver", "7i", "Putter"], pars: [2: 3]))
+        XCTAssertEqual(s.club(on: 1, picked: nil), "Driver")
+        XCTAssertEqual(s.club(on: 2, picked: nil), "7i")
+    }
+
+    func testNeverPutterOrAClubOutsideTheBagOffTheTee() {
+        // The tee club is no longer in the bag, nor are Driver and 7i: the first club that isn't the putter.
+        let s = state(snapshotJSON(bag: ["Putter", "Hybrid", "PW"], tee: [1: "3W"]))
+        XCTAssertEqual(s.club(on: 1, picked: nil), "Hybrid")
+    }
+
+    func testThePuttOnTheLastHoleDoesNotCarryOver() {
+        let s = state(snapshotJSON(currentHole: 2, strokes: [1: [stroke("a", t: 1, club: "Driver"), stroke("b", t: 2, club: "Putter")]]))
+        let picked = RoundState.PickedClub(club: "Putter", roundId: "r", hole: 1, t: 2)
+        XCTAssertEqual(s.club(on: 2, picked: picked), "Driver")
+    }
+
+    func testOnAHoleWithStrokesTheLastClubPlayedSkippingPenalty() {
+        let s = state(snapshotJSON(strokes: [1: [stroke("a", t: 1, club: "Driver"), stroke("b", t: 2, club: "Putter"), stroke("c", t: 3, club: "Penalty")]]))
+        XCTAssertEqual(s.club(on: 1, picked: nil), "Putter")
+    }
+
+    func testAClubPickedOnTheWatchWinsUntilAStrokeAfterIt() {
+        var s = state(snapshotJSON(strokes: [1: [stroke("a", t: 1, club: "Driver")]]))
+        let picked = RoundState.PickedClub(club: "7i", roundId: "r", hole: 1, t: 5)
+        XCTAssertEqual(s.club(on: 1, picked: picked), "7i")
+        // A putt logged later (here on the watch; the same goes for one from the phone) takes over.
+        _ = s.logStroke(id: "w1", club: "Putter", mods: [], hole: 1, t: 6, position: nil)
+        XCTAssertEqual(s.club(on: 1, picked: picked), "Putter")
+        // A pick for another round doesn't count.
+        let other = RoundState.PickedClub(club: "7i", roundId: "old", hole: 2, t: 9)
+        XCTAssertEqual(s.club(on: 2, picked: other), "Driver")
     }
 }

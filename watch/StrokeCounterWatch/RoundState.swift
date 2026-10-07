@@ -18,8 +18,32 @@ struct RoundState: Equatable {
 
     var bag: [String] { snapshot?.bag ?? [] }
 
-    // The club selected on the phone, used until one is picked on the watch.
+    // The club selected on the phone, used when the bag is empty.
     var phoneClub: String? { snapshot?.club }
+
+    // A club picked on the watch's bag screen: for which hole of which round, and when (ms).
+    struct PickedClub: Codable, Equatable {
+        let club: String
+        let roundId: String?
+        let hole: Int
+        let t: Double
+    }
+
+    // The club preselected for the next stroke on a hole (#6):
+    // - a club picked on the watch for this hole wins, until a stroke is logged after it (on either device);
+    // - otherwise, once the hole has strokes, the last club played on it (Penalty skipped), so putts follow putts;
+    // - for the first stroke: the phone's tee club for the hole (from history), else Driver, or 7i on a par 3.
+    // Putter and Penalty are never suggested off the tee, and only clubs in the bag are.
+    func club(on hole: Int, picked: PickedClub?) -> String {
+        let played = strokes(on: hole)
+        if let picked, picked.roundId == round?.id, picked.hole == hole, picked.t >= (played.map(\.t).max() ?? 0) {
+            return picked.club
+        }
+        if let last = played.last(where: { $0.club != "Penalty" }) { return last.club }
+        let tee = bag.filter { $0 != "Putter" && $0 != "Penalty" }
+        let wanted = [self.hole(hole)?.teeClub, self.hole(hole)?.par == 3 ? "7i" : "Driver"].compactMap { $0 }
+        return wanted.first(where: tee.contains) ?? tee.first ?? picked?.club ?? phoneClub ?? "Driver"
+    }
 
     // The round is over when it is finished on the phone's scorecard. Only the phone finishes (and unlocks) a
     // round; finishing the last hole does not. A finished round arrives with every hole locked, so it is read-only.
