@@ -17,6 +17,7 @@ test(async () => {
   ok('a round without the flag is in progress', !round().finished && app.E("isFinished(db.rounds.find(r => r.id === 'old'))") === false);
   app.E("view = 'card'; render();");
   ok('the scorecard has a Finish round slider', !!app.q('.unlock-knob[data-slide="finish-round"]'));
+  ok('in-progress round has Delete round button on scorecard', !!app.q('.round-end [data-action=delete-round]'));
   ok('handicap can be edited before finishing', !!app.q('[data-action=edit-handicap]'));
   app.q('.unlock-knob[data-slide="finish-round"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   ok('a partial slide does not finish', !round().finished);
@@ -26,6 +27,7 @@ test(async () => {
   ok('it is no longer the round to continue', app.saved().activeRoundId === null);
   ok('strokes are kept as they were', round().holes['1'].length === 1 && round().holes['2'].length === 1);
   ok('the scorecard shows it finished, with Unlock round', /Round finished/.test(app.q('.round-end').textContent) && !!app.q('.unlock-knob[data-slide="unlock-round"]') && !app.q('.unlock-knob[data-slide="finish-round"]'));
+  ok('finished round does NOT have Delete round button on scorecard', !app.q('.round-end [data-action=delete-round]'));
   ok('handicap shown, not editable', !app.q('[data-action=edit-handicap]') && /Playing handicap 9/.test(app.q('.hcp-line').textContent));
   await app.click('[data-action=round-note]');
   ok('the round note can only be read', !app.d.getElementById('note-text') && /Windy/.test(app.q('.note-read').textContent));
@@ -45,5 +47,12 @@ test(async () => {
   ok('unlocking makes it in progress and active again', round().finished === false && !('finishedAt' in round()) && app.saved().activeRoundId === 'r');
   ok('hole 2 can be played again', !!app.q('[data-action=add]'));
   ok('hole locks from before are kept', round().locked.includes(1));
+
+  app.E("view = 'card'; render();");
+  ok('unlocked round has Delete round button on scorecard again', !!app.q('.round-end [data-action=delete-round]'));
+  let deleteConfirmed = false;
+  app.w.confirm = () => { deleteConfirmed = true; return true; };
+  await app.click('.round-end [data-action=delete-round]');
+  ok('deleting in-progress round from scorecard removes it and returns to home', deleteConfirmed && !app.saved().rounds.some(r => r.id === 'r') && app.saved().activeRoundId === null && app.E('view') === 'list');
 });
 </script>
