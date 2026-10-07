@@ -72,6 +72,18 @@ test(async () => {
   ok('Continue opens the round to play', app.E('view') === 'round' && app.E('roundId') === 'Current');
   app.E('closeRound()');
 
+  // Swiping and deleting the in-progress round on the home screen
+  const currCard = app.q('.continue');
+  const currCardR = currCard.getBoundingClientRect(), currCardY = currCardR.top + currCardR.height / 2;
+  const currCardPointer = (type, x, yy = currCardY) => currCard.dispatchEvent(new app.w.PointerEvent(type, { bubbles: true, pointerId: 8, clientX: x, clientY: yy, isPrimary: true }));
+  currCardPointer('pointerdown', 300); currCardPointer('pointermove', 290); currCardPointer('pointermove', 180); currCardPointer('pointerup', 180);
+  await wait(500);
+  ok('swiping left on in-progress round opens its Delete button', currCard.classList.contains('open') && app.E('openRowId') === 'Current');
+  let currentAsked = 0;
+  app.w.confirm = () => { currentAsked++; return true; };
+  await app.click('.continue-row .past-del[data-id="Current"]');
+  ok('confirming deletes the in-progress round and promotes next unfinished one', currentAsked === 1 && !app.E("db.rounds.some(r => r.id === 'Current')") && app.q('.continue').dataset.id === 'OldOpen');
+
   // Settings
   await app.click('[data-action=settings]');
   ok('the gear opens settings with the four items', ['courses', 'edit-bag', 'export', 'restore'].every(a => app.q(`.sheet [data-action=${a}]`)));

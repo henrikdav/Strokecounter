@@ -197,8 +197,13 @@
   .stat b.under { color: var(--fairway); }
   .stat b.over { color: var(--flag); }
   .stat span { font-size: 12px; font-weight: 600; color: var(--mute); }
-  .continue { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin: 0 0 18px;
-              padding: 16px; border: 0; border-radius: 16px; background: var(--fairway); color: var(--white); text-align: left; }
+  .continue-row { position: relative; overflow: hidden; border-radius: 16px; margin: 0 0 18px; }
+  .continue-row .past-del { border-radius: 0 16px 16px 0; }
+  .continue { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin: 0;
+              padding: 16px; border: 0; border-radius: 16px; background: var(--fairway); color: var(--white); text-align: left;
+              touch-action: pan-y; transition: transform .18s ease; }
+  .continue.open { transform: translateX(-88px); }
+  .continue.dragging { transition: none; }
   .continue-text { min-width: 0; }
   .continue-kicker { display: block; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--sand); }
   .continue-name { display: block; margin-top: 2px; font-size: 18px; font-weight: 800; overflow-wrap: anywhere; }
@@ -227,7 +232,7 @@
   .settings-list { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; }
   .settings-item { min-height: 52px; padding: 0 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper);
                    color: var(--ink); font-size: 17px; font-weight: 700; text-align: left; }
-  @media (prefers-reduced-motion: reduce) { .past-card { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .past-card, .continue { transition: none; } }
 
   .primary { width: 100%; min-height: 58px; border-radius: 16px; border: 0; background: var(--fairway); color: var(--white);
              font-weight: 800; font-size: 20px; box-shadow: 0 3px 0 var(--fairway-deep); }
@@ -1006,7 +1011,7 @@ function renderList() {
   const current = rounds.find(r => !isFinished(r)) || null;
   const past = rounds.filter(r => r !== current);
   const stats = homeStats(rounds.filter(isFinished));
-  if (openRowId && !past.some(r => r.id === openRowId)) openRowId = null;
+  if (openRowId && !rounds.some(r => r.id === openRowId)) openRowId = null;
 
   const statsHtml = `
         <div class="stats">
@@ -1021,15 +1026,19 @@ function renderList() {
     const started = relativeDay(current.createdAt) === 'Today'
       ? timeFmt.format(current.createdAt)
       : `${relativeDay(current.createdAt).toLowerCase()} ${timeFmt.format(current.createdAt)}`;
+    const open = current.id === openRowId;
     currentHtml = `
-        <button class="continue" data-action="open-round" data-id="${esc(current.id)}">
-          <span class="continue-text">
-            <span class="continue-kicker">In progress · hole ${current.currentHole}</span>
-            <span class="continue-name">${esc(roundTitle(current))}</span>
-            <span class="continue-meta">Started ${esc(started)} · ${played} of ${current.holeCount} holes</span>
-          </span>
-          <span class="continue-go" aria-hidden="true">Continue</span>
-        </button>`;
+        <div class="continue-row">
+          <button class="past-del" data-action="delete-round" data-id="${esc(current.id)}" aria-label="Delete round ${esc(roundTitle(current))}">Delete</button>
+          <button class="continue${open ? ' open' : ''}" data-action="open-round" data-id="${esc(current.id)}">
+            <span class="continue-text">
+              <span class="continue-kicker">In progress · hole ${current.currentHole}</span>
+              <span class="continue-name">${esc(roundTitle(current))}</span>
+              <span class="continue-meta">Started ${esc(started)} · ${played} of ${current.holeCount} holes</span>
+            </span>
+            <span class="continue-go" aria-hidden="true">Continue</span>
+          </button>
+        </div>`;
   }
 
   const items = past.map(r => {
@@ -1570,6 +1579,7 @@ function renderCard() {
     : `<div class="round-end">
          <p class="hint">Done playing? Finishing the round makes it read-only and ends it on the watch. You can unlock it again here.</p>
          ${slider('finish-round', 'Finish round', 'Slide all the way to finish the round')}
+         <button class="danger delete-link" data-action="delete-round" data-id="${esc(round.id)}">Delete round</button>
        </div>`;
   const noIndexNote = round.handicap && hasInfo && !hasExtras
     ? '<p class="note">Extra strokes need a hole index on every hole played. Add it under My courses; it applies to new rounds.</p>'
@@ -2742,7 +2752,19 @@ app.addEventListener('click', event => {
     case 'open-past': openPastRound(el.dataset.id); break;
     case 'delete-round':
       if (confirm('Delete this round? This cannot be undone.')) {
-        db.rounds = db.rounds.filter(r => r.id !== el.dataset.id);
+        const id = el.dataset.id;
+        if (db.activeRoundId === id) {
+          db.activeRoundId = null;
+          stopGps();
+          releaseWake();
+        }
+        if (db.watchRoundId === id) db.watchRoundId = null;
+        if (roundId === id) {
+          roundId = null;
+          view = 'list';
+          sheet = null;
+        }
+        db.rounds = db.rounds.filter(r => r.id !== id);
         openRowId = null;
         saveDb();
         render();
@@ -3051,13 +3073,13 @@ let rowSwipe = null;   // { id, card, pointer, startX, startY, base, x, moved }
 let swallowClickUntil = 0;   // the click that ends a drag must not open the round
 
 function closeOpenRow() {
-  const card = app.querySelector('.past-card.open');
+  const card = app.querySelector('.past-card.open, .continue.open');
   if (card) card.classList.remove('open');
   openRowId = null;
 }
 
 app.addEventListener('pointerdown', event => {
-  const card = event.target.closest('.past-card');
+  const card = event.target.closest('.past-card, .continue');
   if (!card || view !== 'list' || sheet) { rowSwipe = null; return; }
   const base = card.classList.contains('open') ? -ROW_OPEN : 0;
   rowSwipe = { id: card.dataset.id, card, pointer: event.pointerId, startX: event.clientX, startY: event.clientY, base, x: base, moved: false };
@@ -3099,7 +3121,7 @@ app.addEventListener('focusin', event => {
   const del = event.target.closest && event.target.closest('.past-del');
   if (!del || openRowId === del.dataset.id) return;
   closeOpenRow();
-  const card = del.parentElement.querySelector('.past-card');
+  const card = del.parentElement.querySelector('.past-card, .continue');
   if (card) { card.classList.add('open'); openRowId = del.dataset.id; }
 });
 
