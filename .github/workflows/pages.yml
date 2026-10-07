@@ -1,9 +1,12 @@
 # Runs the tests, then publishes web/ to GitHub Pages, so the app keeps its URL (henrikdav.github.io/Strokecounter/).
-# Nothing is published when a test fails.
+# Nothing is published when a test fails. Pull requests run the tests only; publishing happens from main.
 name: Deploy web app to Pages
 
 on:
   push:
+    branches: [main]
+    paths: [web/**, tests/**, ios/StrokeCounter/gps-shim.js, .github/workflows/pages.yml]
+  pull_request:
     branches: [main]
     paths: [web/**, tests/**, ios/StrokeCounter/gps-shim.js, .github/workflows/pages.yml]
   workflow_dispatch:
@@ -13,8 +16,9 @@ permissions:
   pages: write
   id-token: write
 
+# One run per branch or pull request at a time, so a pull request's tests never cancel a deploy from main.
 concurrency:
-  group: pages
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,6 +30,7 @@ jobs:
 
   deploy:
     needs: test
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
