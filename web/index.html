@@ -9,6 +9,8 @@
 <meta name="apple-mobile-web-app-title" content="Strokes">
 <meta name="theme-color" content="#EDF0E6">
 <title>Stroke Counter</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="apple-touch-icon.png">
 <style>
   :root {
     --paper: #EDF0E6;
@@ -2967,29 +2969,6 @@ app.addEventListener('input', event => {
     draft.all[Number(target.dataset.i)].index = digits ? parseInt(digits, 10) : null;
   }
 });
-
-/* ---------- Icon (used by "Add to Home Screen") ---------- */
-
-(function makeIcon() {
-  try {
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 180;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#1E5233';
-    ctx.fillRect(0, 0, 180, 180);
-    ctx.fillStyle = '#EDF0E6';
-    ctx.fillRect(84, 34, 7, 104);
-    ctx.beginPath(); ctx.ellipse(88, 142, 36, 9, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#C4372D';
-    ctx.beginPath(); ctx.moveTo(91, 34); ctx.lineTo(142, 55); ctx.lineTo(91, 76); ctx.closePath(); ctx.fill();
-    const url = canvas.toDataURL('image/png');
-    const touchIcon = document.createElement('link');
-    touchIcon.rel = 'apple-touch-icon'; touchIcon.href = url;
-    const favicon = document.createElement('link');
-    favicon.rel = 'icon'; favicon.href = url;
-    document.head.append(touchIcon, favicon);
-  } catch (err) { /* the icon is optional */ }
-})();
 
 /* ---------- Unlock slider ---------- */
 
