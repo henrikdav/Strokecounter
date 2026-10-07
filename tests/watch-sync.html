@@ -24,9 +24,9 @@ test(async () => {
     snap.round.holes.length === 9 && snap.round.holes[0].par === 4 && snap.round.strokes['1'].length === 2 && snap.round.strokes['1'][0].id === 'p1' && Array.isArray(snap.bag) && !!snap.club);
 
   // Protocol version
-  ok('the snapshot carries the protocol version', snap.v === 1);
+  ok('the snapshot carries the protocol version', snap.v === 2);
   ok('events from a newer watch app are not applied and stay queued (false)',
-    apply([ev({ v: 1, type: 'add', stroke: { id: 'n1', club: '9i', mods: [], t: 1500 } }), ev({ v: 2, type: 'add', stroke: { id: 'n2', club: '9i', mods: [], t: 1600 } })]) === false
+    apply([ev({ v: 1, type: 'add', stroke: { id: 'n1', club: '9i', mods: [], t: 1500 } }), ev({ v: 3, type: 'add', stroke: { id: 'n2', club: '9i', mods: [], t: 1600 } })]) === false
     && !hole(1).some(s => s.id === 'n1' || s.id === 'n2'));
   ok('the user is told to update the iPhone app', /Update the iPhone app/.test(app.d.getElementById('toast').textContent));
   ok('version 1 events are applied', apply([ev({ v: 1, type: 'add', stroke: { id: 'n1', club: '9i', mods: [], t: 1500 } })]) === true && hole(1).some(s => s.id === 'n1'));
@@ -81,6 +81,33 @@ test(async () => {
   ok('the snapshot reflects the merges', snap.round.strokes['3'][0].id === 'w3' && snap.round.removed.includes('w1') && snap.round.locked.includes(1));
   ok('the snapshot carries positions', snap.round.strokes['2'][1].lat === 59.0018);
 
+  // Shot distance locked on the watch (landing) and the hole marked on the watch
+  apply([ev({ hole: 4, type: 'add', stroke: { id: 'D1', club: 'Driver', mods: [], t: 30000, lat: 59, lng: 18, acc: 4 } }),
+         ev({ hole: 4, type: 'add', stroke: { id: 'P1', club: 'Putter', mods: [], t: 31000, lat: 59, lng: 18, acc: 4 } })]);
+  apply([ev({ hole: 4, type: 'landing', id: 'D1', position: { lat: 59.0018, lng: 18, acc: 5 }, t: Date.now() })]);
+  ok('a landing from the watch is set like Stop on the phone', hole(4)[0].landing && hole(4)[0].landing.lat === 59.0018);
+  app.w.__h4 = hole(4);
+  ok('and gives the shot its distance (≈ 200 m)', Math.abs(app.E('shotDistance(__h4, 0)').m - 200.2) < 0.5);
+  apply([ev({ hole: 4, type: 'landing', id: 'D1', position: { lat: 1, lng: 1, acc: 1 }, t: Date.now() })]);
+  ok('an existing landing is not overwritten', hole(4)[0].landing.lat === 59.0018);
+  apply([ev({ hole: 4, type: 'landing', id: 'P1', position: { lat: 59.0001, lng: 18, acc: 5 }, t: Date.now() })]);
+  ok('a putt gets no landing', !hole(4)[1].landing);
+  apply([ev({ hole: 4, type: 'mark', position: { lat: 59.002, lng: 18, acc: 4 }, t: 5000 })]);
+  ok('a mark from the watch sets the hole position', round().holePositions['4'].lat === 59.002 && round().holePositions['4'].t === 5000);
+  apply([ev({ hole: 4, type: 'mark', position: { lat: 1, lng: 1, acc: 1 }, t: 4000 })]);
+  ok('an older mark arriving late does not replace a newer one', round().holePositions['4'].lat === 59.002);
+  apply([ev({ hole: 4, type: 'mark', position: { lat: 59.003, lng: 18, acc: 3 }, t: 6000 })]);
+  ok('marking again replaces it', round().holePositions['4'].lat === 59.003);
+  snap = await lastSnapshot();
+  const h4 = snap.round.holes.find(h => h.number === 4);
+  ok('the snapshot carries the hole position with its time', h4.position && h4.position.lat === 59.003 && h4.position.t === 6000);
+  ok('and the landing on the stroke', snap.round.strokes['4'][0].landing.lat === 59.0018);
+  ok('extra strokes are null without a handicap', h4.extra === null);
+  app.E('getRound().handicap = { base: 10, allowance: 100 }; saveDb();');
+  snap = await lastSnapshot();
+  ok('with a handicap the snapshot carries the extra strokes per hole', snap.round.holes[0].extra === 2 && snap.round.holes[1].extra === 1);
+  app.E('getRound().handicap = null; saveDb();');
+
   // Hole locks
   app.E('getRound().currentHole = 5; render();');
   const tLock = Date.now();
@@ -92,6 +119,10 @@ test(async () => {
   apply([ev({ hole: 5, type: 'remove', id: 'L0', t: tLock + 2000 })]);
   apply([ev({ hole: 5, type: 'remove', id: 'L0' })]);
   ok('removals on a locked hole are ignored, with or without a time', hole(5).some(s => s.id === 'L0'));
+  apply([ev({ hole: 5, type: 'mark', position: { lat: 59, lng: 18, acc: 4 }, t: tLock + 3000 })]);
+  ok('a mark after the lock is refused', !(round().holePositions || {})['5']);
+  apply([ev({ hole: 5, type: 'landing', id: 'L0', position: { lat: 59.001, lng: 18, acc: 4 }, t: tLock + 3000 })]);
+  ok('a landing after the lock is refused', !hole(5).find(s => s.id === 'L0').landing);
   app.E('getRound().locked.push(6); saveDb();');
   apply([ev({ hole: 6, type: 'add', stroke: { id: 'L6', club: '7i', mods: [], t: 5 } })]);
   ok('a hole locked before lock times were kept counts as locked from the start', !hole(6).some(s => s.id === 'L6'));

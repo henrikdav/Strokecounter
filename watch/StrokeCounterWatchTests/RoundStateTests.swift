@@ -9,13 +9,19 @@ final class RoundStateTests: XCTestCase {
 
     // A snapshot as the phone sends it: nine par 4s, round "r", strokes keyed by hole number.
     private func snapshotJSON(roundId: String? = "r", currentHole: Int = 1, locked: [Int] = [], finished: Bool? = nil,
-                              strokes: [Int: [[String: Any]]] = [:], removed: [String] = [], v: Int? = 1) -> String {
+                              strokes: [Int: [[String: Any]]] = [:], removed: [String] = [], v: Int? = 2,
+                              extra: [Int: Int] = [:], marked: [Int: [String: Double]] = [:]) -> String {
         var snapshot: [String: Any] = ["bag": ["Driver", "7i", "Putter"], "club": "7i"]
         if let v { snapshot["v"] = v }
         if let roundId {
             var round: [String: Any] = [
                 "id": roundId, "name": "Test", "currentHole": currentHole, "locked": locked, "removed": removed,
-                "holes": (1...9).map { ["number": $0, "par": 4, "index": $0] },
+                "holes": (1...9).map { n -> [String: Any] in
+                    var hole: [String: Any] = ["number": n, "par": 4, "index": n]
+                    if let e = extra[n] { hole["extra"] = e }
+                    if let m = marked[n] { hole["position"] = m }
+                    return hole
+                },
                 "strokes": Dictionary(uniqueKeysWithValues: strokes.map { (String($0.key), $0.value) })
             ]
             if let finished { round["finished"] = finished }
@@ -27,10 +33,15 @@ final class RoundStateTests: XCTestCase {
         return String(data: data, encoding: .utf8)!
     }
 
-    private func stroke(_ id: String, t: Double, club: String = "7i", lat: Double? = nil) -> [String: Any] {
+    private func stroke(_ id: String, t: Double, club: String = "7i", lat: Double? = nil, acc: Double = 5, landingLat: Double? = nil) -> [String: Any] {
         var s: [String: Any] = ["id": id, "club": club, "mods": [String](), "t": t]
-        if let lat { s["lat"] = lat; s["lng"] = 18.0; s["acc"] = 5.0 }
+        if let lat { s["lat"] = lat; s["lng"] = 18.0; s["acc"] = acc }
+        if let landingLat { s["landing"] = ["lat": landingLat, "lng": 18.0, "acc": 5.0] }
         return s
+    }
+
+    private func pos(_ lat: Double, acc: Double = 5) -> WatchEvent.Position {
+        WatchEvent.Position(lat: lat, lng: 18, acc: acc)
     }
 
     private func state(_ json: String) -> RoundState {
@@ -124,7 +135,7 @@ final class RoundStateTests: XCTestCase {
         let event = try XCTUnwrap(s.removeStroke(id: "p1", hole: 3, t: 42))
         let json = try XCTUnwrap(SyncClient.encode([event]))
         let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]]).first
-        XCTAssertEqual(decoded?["v"] as? Int, 1)
+        XCTAssertEqual(decoded?["v"] as? Int, 2)
         XCTAssertEqual(decoded?["type"] as? String, "remove")
         XCTAssertEqual(decoded?["roundId"] as? String, "r")
         XCTAssertEqual(decoded?["hole"] as? Int, 3)
@@ -203,7 +214,7 @@ final class RoundStateTests: XCTestCase {
 
     func testASnapshotFromANewerPhoneAppIsIgnored() {
         var s = state(snapshotJSON(currentHole: 2))
-        XCTAssertEqual(s.receive(snapshotJSON: snapshotJSON(currentHole: 7, v: 2)), .newerVersion)
+        XCTAssertEqual(s.receive(snapshotJSON: snapshotJSON(currentHole: 7, v: 3)), .newerVersion)
         XCTAssertEqual(s.currentHole, 2, "the round already here keeps working")
     }
 
@@ -221,5 +232,114 @@ final class RoundStateTests: XCTestCase {
     func testAFinishedRoundFromAnOlderPhoneWithoutTheFieldIsNotFinished() {
         let s = state(snapshotJSON(finished: nil))
         XCTAssertFalse(s.isRoundFinished)
+    }
+
+    func testAVersionOneSnapshotStillApplies() {
+        var s = RoundState()
+        XCTAssertEqual(s.receive(snapshotJSON: snapshotJSON(v: 1)), .applied)
+    }
+
+    func testALateFixDoesNotHideItsStroke() {
+        var s = state(snapshotJSON())
+        _ = s.logStroke(id: "w1", club: "7i", mods: [], hole: 1, t: 1, position: nil)
+        _ = s.fillPosition(pos(59), strokeId: "w1", roundId: "r", hole: 1)
+        XCTAssertEqual(s.strokes(on: 1).map(\.id), ["w1"])
+    }
+
+    // MARK: Extra strokes
+
+    func testExtraStrokesComeFromThePhone() {
+        let s = state(snapshotJSON(extra: [1: 2, 2: 1, 3: 0]))
+        XCTAssertEqual(s.extra(1), 2)
+        XCTAssertEqual(s.extra(3), 0)
+        XCTAssertNil(s.extra(4), "no handicap on the hole: nothing")
+    }
+
+    // MARK: Marking the hole
+
+    func testMarkingShowsAtOnceAndTheNewestMarkWins() {
+        var s = state(snapshotJSON(marked: [2: ["lat": 59.0, "lng": 18.0, "acc": 8, "t": 100]]))
+        XCTAssertEqual(s.holePosition(2)?.acc, 8, "marked on the phone")
+        XCTAssertNotNil(s.markHole(2, position: pos(59.001, acc: 4), t: 200))
+        XCTAssertEqual(s.holePosition(2)?.acc, 4, "the mark made here is newer")
+        XCTAssertNotNil(s.markHole(2, position: pos(59.002, acc: 3), t: 300))
+        XCTAssertEqual(s.holePosition(2)?.lat, 59.002, "marking again replaces it")
+    }
+
+    func testALockedHoleCannotBeMarked() {
+        var s = state(snapshotJSON(locked: [2]))
+        XCTAssertNil(s.markHole(2, position: pos(59), t: 1))
+    }
+
+    func testAMarkIsConfirmedWhenThePhoneHasItOrANewerOne() {
+        var s = state(snapshotJSON())
+        _ = s.markHole(2, position: pos(59), t: 200)
+        _ = s.receive(snapshotJSON: snapshotJSON(marked: [2: ["lat": 58.0, "lng": 18.0, "acc": 5, "t": 100]]))
+        XCTAssertEqual(s.outbox.count, 1, "the phone's older mark does not confirm it")
+        _ = s.receive(snapshotJSON: snapshotJSON(marked: [2: ["lat": 59.0, "lng": 18.0, "acc": 5, "t": 200]]))
+        XCTAssertEqual(s.outbox, [])
+        _ = s.markHole(3, position: pos(59), t: 300)
+        _ = s.receive(snapshotJSON: snapshotJSON(locked: [3]))
+        XCTAssertEqual(s.outbox, [], "refused because the hole is locked")
+    }
+
+    // MARK: Locking a shot's distance
+
+    func testLockingSetsTheLandingAtOnce() {
+        var s = state(snapshotJSON(strokes: [1: [stroke("p1", t: 1, lat: 59)]]))
+        XCTAssertNotNil(s.lockLanding(strokeId: "p1", hole: 1, position: pos(59.001), t: 2))
+        XCTAssertEqual(s.strokes(on: 1).first?.landing?.lat, 59.001)
+    }
+
+    func testLockingFollowsThePhonesRules() {
+        var s = state(snapshotJSON(locked: [3], strokes: [
+            1: [stroke("putt", t: 1, club: "Putter", lat: 59), stroke("pen", t: 2, club: "Penalty", lat: 59)],
+            2: [stroke("nopos", t: 1), stroke("done", t: 2, lat: 59, landingLat: 59.001)],
+            3: [stroke("locked", t: 1, lat: 59)]
+        ]))
+        XCTAssertNil(s.lockLanding(strokeId: "putt", hole: 1, position: pos(59.001), t: 3), "no distance for a putt")
+        XCTAssertNil(s.lockLanding(strokeId: "pen", hole: 1, position: pos(59.001), t: 3), "or a penalty stroke")
+        XCTAssertNil(s.lockLanding(strokeId: "nopos", hole: 2, position: pos(59.001), t: 3), "nothing to measure from")
+        XCTAssertNil(s.lockLanding(strokeId: "done", hole: 2, position: pos(59.002), t: 3), "already locked")
+        XCTAssertNil(s.lockLanding(strokeId: "locked", hole: 3, position: pos(59.001), t: 3), "hole locked")
+        XCTAssertEqual(s.outbox, [])
+    }
+
+    func testALandingIsConfirmedWhenThePhoneHasItOrRefusedIt() {
+        var s = state(snapshotJSON(strokes: [1: [stroke("p1", t: 1, lat: 59)], 2: [stroke("p2", t: 1, lat: 59)]]))
+        _ = s.lockLanding(strokeId: "p1", hole: 1, position: pos(59.001), t: 2)
+        _ = s.lockLanding(strokeId: "p2", hole: 2, position: pos(59.001), t: 2)
+        _ = s.receive(snapshotJSON: snapshotJSON(strokes: [1: [stroke("p1", t: 1, lat: 59)], 2: [stroke("p2", t: 1, lat: 59)]]))
+        XCTAssertEqual(s.outbox.count, 2, "not applied yet")
+        _ = s.receive(snapshotJSON: snapshotJSON(locked: [2], strokes: [1: [stroke("p1", t: 1, lat: 59, landingLat: 59.001)], 2: [stroke("p2", t: 1, lat: 59)]]))
+        XCTAssertEqual(s.outbox, [])
+    }
+
+    // MARK: The distance line
+
+    func testNothingToMeasure() {
+        let s = state(snapshotJSON(strokes: [2: [stroke("putt", t: 1, club: "Putter", lat: 59)], 3: [stroke("nopos", t: 1)]]))
+        XCTAssertEqual(s.shotDistance(on: 1, fix: pos(59.001)), .none, "no stroke yet")
+        XCTAssertEqual(s.shotDistance(on: 2, fix: pos(59.001)), .none, "a putt")
+        XCTAssertEqual(s.shotDistance(on: 3, fix: pos(59.001)), .none, "no position")
+        XCTAssertEqual(state(snapshotJSON(strokes: [1: [stroke("p1", t: 1, lat: 59)]])).shotDistance(on: 1, fix: nil), .none, "no fix")
+    }
+
+    func testLiveDistanceFromTheLastStroke() {
+        let s = state(snapshotJSON(strokes: [1: [stroke("tee", t: 1, lat: 58.9), stroke("p1", t: 2, lat: 59)]]))
+        XCTAssertEqual(s.shotDistance(on: 1, fix: pos(59.001)), .live("111", strokeId: "p1"))
+        XCTAssertEqual(s.shotDistance(on: 1, fix: pos(59.001, acc: 30)), .live("≈ 111", strokeId: "p1"), "poor accuracy")
+    }
+
+    func testALockedDistanceStaysPut() {
+        let s = state(snapshotJSON(strokes: [1: [stroke("p1", t: 1, lat: 59, landingLat: 59.001)]]))
+        XCTAssertEqual(s.shotDistance(on: 1, fix: pos(59.005)), .locked("111"))
+        XCTAssertEqual(s.shotDistance(on: 1, fix: nil), .locked("111"), "shown without GPS too")
+    }
+
+    func testDistanceAndFormatMatchThePhone() {
+        XCTAssertEqual(meters(pos(59), pos(59.001)), 111.19, accuracy: 0.05)
+        XCTAssertEqual(formatDistance(0.4, approx: false), "<1")
+        XCTAssertEqual(formatDistance(125.6, approx: true), "≈ 126")
     }
 }

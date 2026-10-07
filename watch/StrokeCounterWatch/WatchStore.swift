@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 
 // What the screens use. It ties together the round as shown (RoundState: the phone's snapshot with this watch's
@@ -11,6 +12,8 @@ final class WatchStore: ObservableObject {
     // A snapshot came from a newer iPhone app than this watch app understands. It is ignored (the round already
     // here keeps working, and events sent from here are still accepted) and the watch asks to be updated.
     @Published var phoneIsNewer = false
+    // The latest GPS fix, published so the shot distance updates while walking.
+    @Published private(set) var lastFix: CLLocation?
 
     private let sync = SyncClient()
     private let session = RoundSession()
@@ -27,6 +30,7 @@ final class WatchStore: ObservableObject {
         session.onLateFix = { [weak self] strokeId, roundId, hole, position in
             self?.change { $0.fillPosition(position, strokeId: strokeId, roundId: roundId, hole: hole) }
         }
+        session.onFix = { [weak self] fix in self?.lastFix = fix }
         session.roundChanged(id: state.round?.id, finished: state.isRoundFinished)
         sync.activate()
     }
@@ -41,6 +45,16 @@ final class WatchStore: ObservableObject {
     func isLastHole(_ number: Int) -> Bool { state.isLastHole(number) }
     func isLocked(_ hole: Int) -> Bool { state.isLocked(hole) }
     func strokes(on hole: Int) -> [Snapshot.Stroke] { state.strokes(on: hole) }
+    func extra(_ hole: Int) -> Int? { state.extra(hole) }
+    func holePosition(_ hole: Int) -> Snapshot.HolePosition? { state.holePosition(hole) }
+
+    // The latest fix if it is recent enough to measure from (the same 30 s as for a new stroke), else nil.
+    var freshFix: WatchEvent.Position? {
+        guard let fix = lastFix, -fix.timestamp.timeIntervalSinceNow < LocationTracker.maxAge else { return nil }
+        return WatchEvent.Position(lat: fix.coordinate.latitude, lng: fix.coordinate.longitude, acc: fix.horizontalAccuracy)
+    }
+
+    func shotDistance(on hole: Int) -> RoundState.ShotDistance { state.shotDistance(on: hole, fix: freshFix) }
 
     // The club the next stroke is logged with: the one picked here last, else the phone's.
     var club: String { lastClub ?? state.phoneClub ?? bag.first ?? "Driver" }
@@ -69,6 +83,20 @@ final class WatchStore: ObservableObject {
 
     func removeStroke(_ id: String, hole: Int) {
         change { $0.removeStroke(id: id, hole: hole, t: Self.now) }
+    }
+
+    // Locks the current shot's distance where the watch is now, as its landing. False when there is no fix.
+    @discardableResult
+    func lockDistance(strokeId: String, hole: Int) -> Bool {
+        guard let fix = freshFix else { return false }
+        return change { $0.lockLanding(strokeId: strokeId, hole: hole, position: fix, t: Self.now) } != nil
+    }
+
+    // Marks the hole where the watch is now. False when there is no fix (or the hole is locked).
+    @discardableResult
+    func markHole(_ hole: Int) -> Bool {
+        guard let fix = freshFix else { return false }
+        return change { $0.markHole(hole, position: fix, t: Self.now) } != nil
     }
 
     func finishHole(_ hole: Int) {

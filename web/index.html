@@ -2257,7 +2257,7 @@ function countText(n, word) {
 const watchBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.watch;
 // Sync protocol version, in every snapshot and event. Raised only for a change an older app could misread;
 // new optional fields keep it (both sides ignore fields they don't know).
-const WATCH_PROTOCOL = 1;
+const WATCH_PROTOCOL = 2;   // 2: the watch also sends 'mark' and 'landing'
 let watchTimer = null;
 let watchTooNewShown = false;
 
@@ -2272,11 +2272,14 @@ function sendWatchSnapshot() {
   const snapshot = { v: WATCH_PROTOCOL, round: null, bag: db.activeClubs, club: db.club };
   if (round) {
     const course = round.courseId ? db.courses.find(c => c.id === round.courseId) : null;
+    const hasExtras = strokesReceived(round, round.startHole || 1) !== null;
+    const point = p => ({ lat: p.lat, lng: p.lng, acc: p.acc || 0 });
     const strokes = {};
     holeNumbers(round).forEach(h => {
       strokes[h] = (round.holes[h] || []).map(s => ({
         id: s.id, club: s.club, mods: MODS.filter(m => s[m.key]).map(m => m.key), t: s.t,
-        ...(hasPos(s) ? { lat: s.lat, lng: s.lng, acc: s.acc || 0 } : {})
+        ...(hasPos(s) ? point(s) : {}),
+        ...(hasPos(s.landing) ? { landing: point(s.landing) } : {})
       }));
     });
     snapshot.round = {
@@ -2284,7 +2287,13 @@ function sendWatchSnapshot() {
       name: course ? course.name : roundLabel(round),
       holes: holeNumbers(round).map(h => {
         const info = holeInfo(round, h);
-        return { number: h, par: info ? info.par : null, index: info && Number.isInteger(info.index) ? info.index : null };
+        const pin = holePosition(round, h);
+        return {
+          number: h, par: info ? info.par : null, index: info && Number.isInteger(info.index) ? info.index : null,
+          // Worked out here so the watch never repeats the handicap rules; null without handicap and index.
+          extra: hasExtras ? strokesReceived(round, h) : null,
+          position: pin ? { ...point(pin), t: pin.t || 0 } : null
+        };
       }),
       currentHole: round.currentHole,
       // A finished round is sent with every hole locked, so the watch treats it as read-only throughout.
@@ -2307,6 +2316,8 @@ function rememberRemoved(round, id) {
 //   { type: 'remove', roundId, hole, id, t }
 //   { type: 'finish', roundId, hole, t }
 //   { type: 'position', roundId, hole, id, position: { lat, lng, acc } }   (a fix that arrived just after logging)
+//   { type: 'landing', roundId, hole, id, position: { lat, lng, acc }, t }  (where the shot landed, like Stop)
+//   { type: 'mark', roundId, hole, position: { lat, lng, acc }, t }         (where the hole is, like Mark hole)
 // Applying an event twice changes nothing, so the app can deliver again after a resend or a crash.
 // A stroke removed on either device stays removed, even if its 'add' arrives late.
 // The hole lock is enforced here, not only in the screens: a stroke added on the watch to a hole that was already
@@ -2343,6 +2354,27 @@ function applyWatchEvents(events) {
       const found = findStroke(list, e.id);
       if (found && !hasPos(found.stroke)) {
         Object.assign(found.stroke, { lat: e.position.lat, lng: e.position.lng, acc: e.position.acc || 0 });
+        changed = true;
+      }
+    } else if (e.type === 'landing' && e.id && hasPos(e.position)) {
+      // Like Stop on the round screen (measureLanding): set once, never over an existing landing, never on a
+      // putt, a penalty stroke or a stroke without a position to measure from.
+      if (refusedByLock(round, e.hole, e.t)) return;
+      const found = findStroke(list, e.id);
+      const stroke = found && found.stroke;
+      if (stroke && hasPos(stroke) && !hasPos(stroke.landing) && stroke.club !== 'Putter' && stroke.club !== PENALTY) {
+        stroke.landing = { lat: e.position.lat, lng: e.position.lng, acc: e.position.acc || 0 };
+        changed = true;
+      }
+    } else if (e.type === 'mark' && hasPos(e.position)) {
+      // Like Mark hole on the round screen. Marking again overwrites, so the newest mark wins, whichever device
+      // made it and whatever order the marks arrive in.
+      if (refusedByLock(round, e.hole, e.t)) return;
+      const current = round.holePositions && round.holePositions[e.hole];
+      const t = Number.isFinite(e.t) ? e.t : Date.now();
+      if (!current || !(current.t > t)) {
+        if (!round.holePositions) round.holePositions = {};
+        round.holePositions[e.hole] = { lat: e.position.lat, lng: e.position.lng, acc: e.position.acc || 0, t };
         changed = true;
       }
     } else if (e.type === 'finish') {

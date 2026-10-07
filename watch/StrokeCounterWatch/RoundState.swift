@@ -42,6 +42,20 @@ struct RoundState: Equatable {
         round?.holes.last?.number == number
     }
 
+    // Handicap strokes on the hole, as the phone worked them out; nil without handicap and hole index.
+    func extra(_ hole: Int) -> Int? {
+        self.hole(hole)?.extra
+    }
+
+    // Where the hole was marked: the newest of the phone's mark and any mark made here and not yet confirmed.
+    func holePosition(_ hole: Int) -> Snapshot.HolePosition? {
+        guard let round else { return nil }
+        let mine = outbox.filter { $0.type == .mark && $0.roundId == round.id && $0.hole == hole }.compactMap { event in
+            event.position.map { Snapshot.HolePosition(lat: $0.lat, lng: $0.lng, acc: $0.acc, t: event.t ?? 0) }
+        }
+        return ([self.hole(hole)?.position].compactMap { $0 } + mine).max { $0.t < $1.t }
+    }
+
     // A locked hole takes no strokes and no removals. Locked on the phone, or finished here and not yet confirmed.
     // The phone enforces the same rule when the events arrive (applyWatchEvents in web/index.html).
     func isLocked(_ hole: Int) -> Bool {
@@ -50,18 +64,40 @@ struct RoundState: Equatable {
             outbox.contains { $0.type == .finish && $0.roundId == round.id && $0.hole == hole }
     }
 
-    // The phone's strokes for the hole, minus strokes removed here, plus strokes added here, in playing order.
+    // The phone's strokes for the hole, minus strokes removed here, plus strokes added here, with landings locked
+    // here, in playing order.
     func strokes(on hole: Int) -> [Snapshot.Stroke] {
         guard let round else { return [] }
         let mine = outbox.filter { $0.roundId == round.id && $0.hole == hole }
-        let removed = Set(mine.compactMap(\.id)).union(round.removed)
+        let removed = Set(mine.filter { $0.type == .remove }.compactMap(\.id)).union(round.removed)
         var list = (round.strokes[String(hole)] ?? []).filter { !removed.contains($0.id) }
         for event in mine where event.type == .add {
             if let stroke = event.stroke, !removed.contains(stroke.id), !list.contains(where: { $0.id == stroke.id }) {
                 list.append(stroke)
             }
         }
+        for event in mine where event.type == .landing {
+            if let i = list.firstIndex(where: { $0.id == event.id }), list[i].landing == nil { list[i].landing = event.position }
+        }
         return list.sorted { $0.t < $1.t }
+    }
+
+    // What the distance line on the hole screen shows, for the hole's last stroke (the shot in the air or just
+    // played), given the current GPS fix (nil when there is none recent enough). As on the phone: nothing for a
+    // putt, a penalty stroke or a stroke without a position; the locked distance once its landing is set.
+    enum ShotDistance: Equatable {
+        case none
+        case live(String, strokeId: String)   // tap locks it
+        case locked(String)
+    }
+
+    func shotDistance(on hole: Int, fix: WatchEvent.Position?) -> ShotDistance {
+        guard let last = strokes(on: hole).last, last.isMeasured, let start = last.position else { return .none }
+        if let landing = last.landing {
+            return .locked(formatDistance(meters(start, landing), approx: start.acc + landing.acc > 25))
+        }
+        guard let fix else { return .none }
+        return .live(formatDistance(meters(start, fix), approx: start.acc + fix.acc > 25), strokeId: last.id)
     }
 
     // MARK: Changes made on the watch
@@ -79,6 +115,21 @@ struct RoundState: Equatable {
     mutating func removeStroke(id: String, hole: Int, t: Double) -> WatchEvent? {
         guard let round, !isLocked(hole) else { return nil }
         return queue(WatchEvent(type: .remove, roundId: round.id, hole: hole, id: id, t: t))
+    }
+
+    // Locks the shot's distance by setting where it landed, like Stop on the phone: once per stroke, never for a
+    // putt, a penalty stroke or a stroke without a position, never on a locked hole.
+    mutating func lockLanding(strokeId: String, hole: Int, position: WatchEvent.Position, t: Double) -> WatchEvent? {
+        guard let round, !isLocked(hole),
+              let stroke = strokes(on: hole).first(where: { $0.id == strokeId }),
+              stroke.isMeasured, stroke.position != nil, stroke.landing == nil else { return nil }
+        return queue(WatchEvent(type: .landing, roundId: round.id, hole: hole, id: strokeId, position: position, t: t))
+    }
+
+    // Marks where the hole is, like Mark hole on the phone. Marking again replaces it (the newest mark wins).
+    mutating func markHole(_ hole: Int, position: WatchEvent.Position, t: Double) -> WatchEvent? {
+        guard let round, !isLocked(hole) else { return nil }
+        return queue(WatchEvent(type: .mark, roundId: round.id, hole: hole, position: position, t: t))
     }
 
     mutating func finishHole(_ hole: Int, t: Double) -> WatchEvent? {

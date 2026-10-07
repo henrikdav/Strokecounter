@@ -1,6 +1,6 @@
 # Watch sync protocol
 
-How the iPhone app and the Apple Watch app keep one round in step. Protocol version **1**.
+How the iPhone app and the Apple Watch app keep one round in step. Protocol version **2**.
 
 The phone owns the round. The watch shows the phone's round with its own unconfirmed changes on top, sends those
 changes as events, and keeps each one until a snapshot from the phone shows it was applied. Every rule below
@@ -43,16 +43,21 @@ idempotent.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "round": {
     "id": "mcx3k2f9ab",
     "name": "Malmö Burlöv",
-    "holes": [ { "number": 1, "par": 4, "index": 7 }, { "number": 2, "par": 3, "index": null } ],
+    "holes": [
+      { "number": 1, "par": 4, "index": 7, "extra": 1,
+        "position": { "lat": 59.331, "lng": 18.07, "acc": 4, "t": 1759500600000 } },
+      { "number": 2, "par": 3, "index": null, "extra": null, "position": null }
+    ],
     "currentHole": 2,
     "locked": [1],
     "finished": false,
     "strokes": {
-      "1": [ { "id": "4f1c…", "club": "Driver", "mods": [], "t": 1759500000000, "lat": 59.33, "lng": 18.07, "acc": 5 } ],
+      "1": [ { "id": "4f1c…", "club": "Driver", "mods": [], "t": 1759500000000, "lat": 59.33, "lng": 18.07, "acc": 5,
+               "landing": { "lat": 59.3318, "lng": 18.07, "acc": 6 } } ],
       "2": []
     },
     "removed": ["9e2a…"]
@@ -65,8 +70,12 @@ idempotent.
 - `round` is the round opened last on the phone (`db.watchRoundId`), or `null` when there is none or it was
   deleted. Opening a finished round to look at it does not change which round the watch shows.
 - `par` and `index` are `null` for a round without course data. `name` is the course name, else the round's label.
+- `extra` is the hole's handicap strokes, worked out on the phone (`strokesReceived`) so the watch never repeats
+  the handicap rules; `null` without a playing handicap and a hole index on every hole.
+- `position` is where the hole (cup) was marked, on either device, with the time it was marked; `null` if not.
 - `strokes` is keyed by real hole number. `mods` holds `chip`, `pitch`, `bunker`, `rough` in that order.
-  `lat`/`lng`/`acc` appear only when the stroke has a position.
+  `lat`/`lng`/`acc` appear only when the stroke has a position, `landing` only when the shot's distance was locked
+  (Stop on the phone, a tap on the distance on the watch).
 - `locked` lists holes finished with Done. For a finished round it lists every hole, so an older watch app also
   treats the whole round as read-only.
 - `removed` lists every stroke id removed on either device (tombstones). They never come back.
@@ -83,6 +92,8 @@ the watch's clock.
 | `remove` | `id`, `t` | A stroke removed with Undo |
 | `finish` | `t` | The hole was finished on the watch (Next hole / Finish hole) |
 | `position` | `id`, `position`: `{ lat, lng, acc }` | A fix that arrived within 10 s after a stroke logged without one |
+| `landing` | `id`, `position`: `{ lat, lng, acc }`, `t` | The shot's distance was locked on the watch: where the watch was then is where the shot landed (v2) |
+| `mark` | `position`: `{ lat, lng, acc }`, `t` | The hole was marked on the watch (Finish hole screen) (v2) |
 
 ## Rules on the phone (`applyWatchEvents`)
 
@@ -94,14 +105,19 @@ the watch's clock.
    by `t`, whichever device logged the strokes around it. Unknown modifiers are dropped; Penalty takes none.
 4. **remove.** Takes the stroke out and adds its id to `removed`, so an `add` arriving later stays out.
 5. **position.** Fills in a position only if the stroke has none.
-6. **finish.** Locks the hole (recording `lockedAt` from the event's `t`) and moves the phone's current hole on,
+6. **landing.** Sets `stroke.landing`, as Stop does on the phone (`measureLanding`): only once, and never for a
+   putt, a penalty stroke or a stroke without a position. The phone then works out the shot's distance itself
+   (`shotDistance`), so scorecard and export are the same as for a distance measured on the phone.
+7. **mark.** Sets `round.holePositions[hole]`, as Mark hole does on the phone. The newest mark wins by `t`,
+   whichever device made it and whatever order marks arrive in.
+8. **finish.** Locks the hole (recording `lockedAt` from the event's `t`) and moves the phone's current hole on,
    if it was that hole and not the last. Repeats change nothing.
-7. **Locks and finished rounds.** A change made at a time `t` is refused when the hole was locked, or the round
+9. **Locks and finished rounds.** A change made at a time `t` (add, remove, landing, mark) is refused when the hole was locked, or the round
    finished, by then (`lockedAt`, `finishedAt`). A change made earlier but delivered later still counts, so a slow
    sync cannot lose a stroke that was played. A refused `add` is put in `removed`, so the watch drops it. Holes
    locked before lock times were recorded count as locked from the start. A `finish` on a finished round is
    ignored.
-8. After applying, the phone saves (which sends a new snapshot) and redraws, unless a sheet is open, so text being
+10. After applying, the phone saves (which sends a new snapshot) and redraws, unless a sheet is open, so text being
    typed is not lost. When nothing changed it still sends a snapshot, so the watch can stop resending.
 
 ## Rules on the watch
@@ -114,12 +130,19 @@ the watch's clock.
   - `remove`: the id is in `removed`, or the hole is locked (refused).
   - `finish`: the hole is in `locked`.
   - `position`: the stroke has a position, or is in `removed`.
+  - `landing`: the stroke has a landing, is in `removed`, or the hole is locked (refused).
+  - `mark`: the hole's `position` is at least as new as the mark (applied, or a newer mark won), or the hole is
+    locked (refused).
   Events for another round are dropped too; they were already queued for delivery when they were made.
 - **Locks.** The watch refuses to log or remove strokes on a locked hole, or in a finished round, and shows
   "Hole locked" or "Round finished". The phone enforces the same rules (above), so a stale watch cannot get round
   them.
 - **Version.** A snapshot with a higher `v` than the watch app supports is ignored: the round already on the watch
   keeps working, events from it are still accepted by the newer phone, and the watch asks to be updated.
+- **Shot distance.** The hole screen shows the distance from the hole's last stroke to the watch's current fix
+  (no older than 30 s), worked out on the watch with the phone's formula (`meters`, haversine) and shown as the
+  phone does (`fmtDist`: whole meters, "≈" when the two accuracies add up to more than 25 m). Nothing for a
+  putt, a penalty stroke or a stroke without a position. Once the landing is set it shows that distance, fixed.
 - **Workout.** The golf workout session (and with it background GPS) runs while the round is shown and not
   finished; it ends when the snapshot says `finished`, or the round is removed or replaced.
 
@@ -140,6 +163,11 @@ the watch's clock.
   what it uses; Swift's `Codable` skips unknown keys), and new fields must be safe to leave out.
 - **New version:** removing or renaming a field, changing its meaning or unit, or a new event type an older phone
   would mishandle. Then each side refuses what it can't read, as described above, without losing data.
+
+| Version | Change |
+| --- | --- |
+| 1 | First versioned protocol |
+| 2 | Events `landing` and `mark`; snapshot fields `extra` and `position` on holes, `landing` on strokes |
 
 The watch app is updated separately from the iPhone app (and sometimes later), so either side may be the newer one.
 

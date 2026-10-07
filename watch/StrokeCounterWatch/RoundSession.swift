@@ -7,6 +7,8 @@ import CoreLocation
 final class RoundSession {
     // A fix that arrived soon after a stroke was logged without one: (stroke id, round id, hole, position).
     var onLateFix: ((String, String, Int, WatchEvent.Position) -> Void)?
+    // Every new fix, for what is shown live (the distance of the current shot).
+    var onFix: ((CLLocation) -> Void)?
 
     private let location = LocationTracker()
     private let workout = RoundWorkout()
@@ -18,7 +20,10 @@ final class RoundSession {
     private static let backfillWindow: TimeInterval = 10   // like the phone's single-fix timeout
 
     init() {
-        location.onFix = { [weak self] fix in self?.lateFix(fix) }
+        location.onFix = { [weak self] fix in
+            self?.lateFix(fix)
+            self?.onFix?(fix)
+        }
         workout.onChange = { [weak self] in self?.updateLocation() }
     }
 
