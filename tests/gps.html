@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>GPS</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// The web app's GPS watch: one watch while a round is open, a fresh one after a denied error and on every
+// return to the foreground, and the GPS status pill. navigator.geolocation and the page visibility are faked.
+const FAKE_GPS = `<script>
+window.__geo = { watches: {}, next: 1, cleared: [], started: 0 };
+Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+  watchPosition(ok, err) { const id = __geo.next++; __geo.watches[id] = { ok, err }; __geo.started++; return id; },
+  clearWatch(id) { __geo.cleared.push(id); delete __geo.watches[id]; },
+  getCurrentPosition() {}
+}});
+let __vis = 'visible';
+Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => __vis });
+window.__setVisible = v => { __vis = v ? 'visible' : 'hidden'; document.dispatchEvent(new Event('visibilitychange')); };
+<\/script>`;
+
+test(async () => {
+  const app = await loadApp({ inject: FAKE_GPS, data: { courses: [], rounds: [makeRound('r')], activeRoundId: 'r' } });
+  const g = app.w.__geo;
+  const pill = () => app.d.getElementById('gps').textContent;
+  const active = () => Object.keys(g.watches).map(Number);
+  const fix = acc => active().forEach(id => g.watches[id].ok({ coords: { latitude: 59, longitude: 18, accuracy: acc } }));
+  const fail = code => active().forEach(id => g.watches[id].err({ code }));
+  const comeBack = async () => { app.w.__setVisible(false); app.w.__setVisible(true); await wait(10); };
+
+  ok('opening a round starts one watch', g.started === 1 && active().length === 1);
+  app.E('startGps()');
+  ok('startGps with a healthy watch does nothing', g.started === 1);
+  fix(5); await wait(10);
+  ok('a fix clears errors and shows the accuracy', app.E('gpsErrorCode') === null && /GPS ±5 m/.test(pill()), pill());
+  await wait(11000);
+  ok('the 5-second updates never restart the watch', g.started === 1 && g.cleared.length === 0);
+  fail(2); await wait(10);
+  ok('position unavailable keeps the watch (it retries)', active().length === 1 && g.cleared.length === 0 && app.E('gpsErrorCode') === 2);
+  fail(3); await wait(10);
+  ok('a timeout keeps the watch', g.cleared.length === 0);
+  fix(4); await wait(10);
+  ok('a fix after that recovers', app.E('gpsErrorCode') === null && /GPS ±4 m/.test(pill()));
+  fail(1); await wait(10);
+  ok('denied clears the dead watch', app.E('watchId') === null && active().length === 0);
+  ok('and says so', /Location access denied/.test(pill()), pill());
+  await comeBack();
+  ok('returning to the app starts a new watch', g.started === 2 && active().length === 1);
+  fix(6); await wait(10);
+  ok('a fix then clears denied', app.E('gpsErrorCode') === null && /GPS ±6 m/.test(pill()));
+  await comeBack();
+  ok('every return to the app restarts even a healthy watch', g.cleared.includes(2) && g.started === 3 && active().length === 1);
+  fail(1); app.E('startGps()');
+  ok('startGps after denied creates a new watch', g.started === 4 && active().length === 1);
+  app.E('closeRound()'); await wait(10);
+  ok('leaving the round stops GPS', app.E('watchId') === null && active().length === 0);
+  await comeBack();
+  ok('returning to the home screen does not start GPS', g.started === 4 && active().length === 0);
+});
+</script>

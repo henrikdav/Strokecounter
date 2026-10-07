@@ -1,10 +1,11 @@
-# Publishes web/ to GitHub Pages, so the app keeps its URL (henrikdav.github.io/Strokecounter/).
+# Runs the tests, then publishes web/ to GitHub Pages, so the app keeps its URL (henrikdav.github.io/Strokecounter/).
+# Nothing is published when a test fails.
 name: Deploy web app to Pages
 
 on:
   push:
     branches: [main]
-    paths: [web/**, .github/workflows/pages.yml]
+    paths: [web/**, tests/**, ios/StrokeCounter/gps-shim.js, .github/workflows/pages.yml]
   workflow_dispatch:
 
 permissions:
@@ -17,7 +18,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest   # has Chrome and python3, which tests/run.sh needs
+    steps:
+      - uses: actions/checkout@v4
+      - run: tests/run.sh
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     environment:
       name: github-pages

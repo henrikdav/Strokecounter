@@ -1,0 +1,69 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>GPS shim</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// ios/StrokeCounter/gps-shim.js: replaces navigator.geolocation inside the iOS app with one fed by the native
+// gpsBridge, and leaves a normal browser alone. The native side is faked.
+test(async () => {
+  await loadHtml('<script src="../ios/StrokeCounter/gps-shim.js"><\/script>');
+  let w = frame.contentWindow;
+  ok('without the bridge navigator.geolocation is untouched',
+    Object.getOwnPropertyDescriptor(w.navigator, 'geolocation') === undefined && w.navigator.geolocation instanceof w.Geolocation && !w.__gpsBridge);
+
+  await loadHtml('<script>window.sent = []; window.webkit = { messageHandlers: { gpsBridge: { postMessage: m => sent.push(JSON.stringify(m)) } } };<\/script>' +
+                 '<script src="../ios/StrokeCounter/gps-shim.js"><\/script>');
+  w = frame.contentWindow;
+  const g = w.navigator.geolocation, sent = w.sent;
+  const fix = (lat, t = Date.now()) => w.__gpsBridge.location({ lat, lng: 18, acc: 5, t });
+  ok('with the bridge it is replaced', !(g instanceof w.Geolocation) && typeof g.watchPosition === 'function');
+
+  const a = [], aErr = [], b = [];
+  const idA = g.watchPosition(p => a.push(p), e => aErr.push(e.code), { enableHighAccuracy: false, maximumAge: 0, timeout: 30000 });
+  ok('a watch starts native updates at low accuracy', sent.at(-1) === '{"type":"start","highAccuracy":false}');
+  const idB = g.watchPosition(p => b.push(p), null, { enableHighAccuracy: true });
+  ok('each watch gets its own id', idA !== idB);
+  ok('a high-accuracy watch raises the accuracy', sent.at(-1) === '{"type":"start","highAccuracy":true}');
+  fix(59.1);
+  ok('every watch gets the fix', a.length === 1 && b.length === 1);
+  ok('the position has the browser\'s shape', a[0].coords.latitude === 59.1 && a[0].coords.longitude === 18 && a[0].coords.accuracy === 5 && typeof a[0].timestamp === 'number');
+  g.clearWatch(idB);
+  ok('clearing the high-accuracy watch lowers it again', sent.at(-1) === '{"type":"start","highAccuracy":false}');
+  fix(59.2);
+  ok('a cleared watch gets nothing more', a.length === 2 && b.length === 1);
+
+  let cached = null;
+  g.getCurrentPosition(p => { cached = p; }, null, { maximumAge: 60000 });
+  await wait(10);
+  ok('maximumAge answers from the last fix', cached && cached.coords.latitude === 59.2);
+  let fresh = null;
+  g.getCurrentPosition(p => { fresh = p; }, null, { maximumAge: 0, timeout: 10000 });
+  ok('maximumAge 0 waits for a new fix', fresh === null);
+  fix(59.3);
+  fix(59.4);
+  ok('a one-shot request gets one fix only', fresh && fresh.coords.latitude === 59.3);
+
+  let timeoutError = null;
+  g.getCurrentPosition(() => {}, e => { timeoutError = e; }, { timeout: 50 });
+  await wait(120);
+  ok('a timeout gives error code 3', timeoutError && timeoutError.code === 3 && timeoutError.TIMEOUT === 3);
+  const c = [], cErr = [];
+  const idC = g.watchPosition(p => c.push(p), e => cErr.push(e.code), { timeout: 50 });
+  await wait(130);
+  ok('a watch keeps going after timeouts', cErr.length >= 2 && cErr.every(code => code === 3));
+  fix(59.5);
+  ok('and still gets fixes', c.length === 1);
+  g.clearWatch(idC);
+
+  w.__gpsBridge.error(2, 'x');
+  ok('position unavailable: code 2, the watch is kept', aErr.at(-1) === 2);
+  fix(59.6);
+  ok('it keeps getting fixes', a.length === 6);
+  w.__gpsBridge.error(1, 'denied');
+  ok('denied: code 1', aErr.at(-1) === 1);
+  ok('and native updates stop when nothing is watching', sent.at(-1) === '{"type":"stop"}');
+  fix(59.7);
+  ok('no fixes after denied', a.length === 6);
+});
+</script>

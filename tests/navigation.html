@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Navigation</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// Back goes where the user came from: Past rounds -> scorecard -> hole, and Continue -> hole -> scorecard.
+test(async () => {
+  const now = Date.now();
+  const holes = { 1: strokes(5, 'a'), 2: strokes(4, 'b'), 3: strokes(6, 'c') };
+  const app = await loadApp({ data: { courses: [], rounds: [
+    makeRound('Done', { createdAt: now - DAY, finished: true, finishedAt: now, holes }),
+    makeRound('OldOpen', { createdAt: now - 9 * DAY, holes }),
+    makeRound('Current', { createdAt: now - 600000, currentHole: 2, holes })
+  ] } });
+  const where = () => app.E('view') + ':' + (app.E('getRound()') ? app.E('getRound().id') : '-') + (app.E('view') === 'round' ? ':' + app.E('getRound().currentHole') : '');
+  const back = () => app.q('[data-action=back]').textContent.trim();
+
+  await app.click('.past-card[data-id="Done"]');
+  ok('Past rounds opens the scorecard', where() === 'card:Done', where());
+  ok('and does not make the round active', app.E('db.activeRoundId') === null);
+  await app.click('[data-action=goto-hole][data-hole="3"]');
+  ok('a hole number opens that hole', where() === 'round:Done:3', where());
+  ok('Back there is labelled Scorecard', back() === '‹ Scorecard');
+  await app.click('[data-action=next-hole]');
+  ok('moving between holes keeps the way back', where() === 'round:Done:4' && back() === '‹ Scorecard');
+  await app.click('[data-action=back]');
+  ok('Back from the hole goes to the scorecard', where() === 'card:Done', where());
+  await app.click('[data-action=goto-hole][data-hole="2"]');
+  await app.click('[data-action=scorecard]');
+  ok('the Scorecard button there also goes back to it', where() === 'card:Done', where());
+  await app.click('[data-action=card-back]');
+  ok('Back from that scorecard goes home', app.E('view') === 'list' && app.E('roundId') === null);
+
+  await app.click('.continue');
+  ok('Continue opens the hole, Back says Home', where() === 'round:Current:2' && back() === '‹ Home', where());
+  await app.click('[data-action=scorecard]');
+  ok('its scorecard', where() === 'card:Current');
+  await app.click('[data-action=goto-hole][data-hole="3"]');
+  ok('a hole from that scorecard still goes Home', where() === 'round:Current:3' && back() === '‹ Home', where());
+  await app.click('[data-action=scorecard]');
+  await app.click('[data-action=card-back]');
+  ok('Back from its scorecard returns to the round', where() === 'round:Current:3', where());
+  await app.click('[data-action=back]');
+  ok('Back from the round goes home', app.E('view') === 'list');
+
+  await app.click('.past-card[data-id="Done"]');
+  await app.click('[data-action=goto-hole][data-hole="1"]');
+  await app.click('[data-action=back]');
+  await app.click('[data-action=card-back]');
+  await app.click('.continue');
+  ok('after the Past rounds flow, Continue still says Home', back() === '‹ Home');
+  await app.click('[data-action=back]');
+
+  await app.click('.past-card[data-id="OldOpen"]');
+  ok('an unfinished round in the list opens on its holes', where() === 'round:OldOpen:1' && back() === '‹ Home', where());
+});
+</script>

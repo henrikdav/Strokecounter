@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Finish round</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// Finishing a round on the scorecard: the slider, read-only state, and unlocking it again.
+test(async () => {
+  const app = await loadApp({ data: { courses: [], activeRoundId: 'r', watchRoundId: 'r', rounds: [
+    makeRound('r', { currentHole: 2, locked: [1], handicap: { base: 9, allowance: 100 }, note: 'Windy', notes: { 2: 'Bunker' },
+      holes: { 1: [{ id: 'a', t: 1, club: 'Driver' }], 2: [{ id: 'b', t: 2, club: '7i' }] } }),
+    makeRound('old', { createdAt: 0 })
+  ] } });
+  const round = () => app.saved().rounds.find(r => r.id === 'r');
+  const slide = async action => { app.q(`.unlock-knob[data-slide="${action}"]`).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })); await wait(20); };
+
+  ok('a round without the flag is in progress', !round().finished && app.E("isFinished(db.rounds.find(r => r.id === 'old'))") === false);
+  app.E("view = 'card'; render();");
+  ok('the scorecard has a Finish round slider', !!app.q('.unlock-knob[data-slide="finish-round"]'));
+  ok('handicap can be edited before finishing', !!app.q('[data-action=edit-handicap]'));
+  app.q('.unlock-knob[data-slide="finish-round"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  ok('a partial slide does not finish', !round().finished);
+
+  await slide('finish-round');
+  ok('finishing saves the flag and the time', round().finished === true && Number.isFinite(round().finishedAt));
+  ok('it is no longer the round to continue', app.saved().activeRoundId === null);
+  ok('strokes are kept as they were', round().holes['1'].length === 1 && round().holes['2'].length === 1);
+  ok('the scorecard shows it finished, with Unlock round', /Round finished/.test(app.q('.round-end').textContent) && !!app.q('.unlock-knob[data-slide="unlock-round"]') && !app.q('.unlock-knob[data-slide="finish-round"]'));
+  ok('handicap shown, not editable', !app.q('[data-action=edit-handicap]') && /Playing handicap 9/.test(app.q('.hcp-line').textContent));
+  await app.click('[data-action=round-note]');
+  ok('the round note can only be read', !app.d.getElementById('note-text') && /Windy/.test(app.q('.note-read').textContent));
+  await app.click('[data-action=close-sheet]');
+
+  app.E("view = 'round'; render();");
+  ok('round screen: no stroke controls, an unlock slider instead', !app.q('[data-action=add]') && /round is finished/.test(app.q('.dock').textContent) && !!app.q('.unlock-knob[data-slide="unlock-round"]') && !app.q('.unlock-knob[data-slide="unlock-hole"]'));
+  ok('strokes, marking and measuring are off', !app.q('[data-action=edit-stroke]') && !app.q('[data-action=mark-hole]') && !app.q('[data-action=measure]'));
+  await app.click('[data-action=hole-note]');
+  ok('hole notes can only be read', !app.d.getElementById('note-text'));
+  await app.click('[data-action=close-sheet]');
+
+  app.E("closeRound(); openRound('r');");
+  ok('opening a finished round does not make it active', app.saved().activeRoundId === null && app.E('view') === 'round');
+
+  await slide('unlock-round');
+  ok('unlocking makes it in progress and active again', round().finished === false && !('finishedAt' in round()) && app.saved().activeRoundId === 'r');
+  ok('hole 2 can be played again', !!app.q('[data-action=add]'));
+  ok('hole locks from before are kept', round().locked.includes(1));
+});
+</script>

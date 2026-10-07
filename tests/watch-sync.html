@@ -1,0 +1,122 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Watch sync</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// The phone side of the watch sync: snapshots sent to the watch, and applyWatchEvents() merging the watch's
+// events by stroke id, with hole locks and finished rounds enforced.
+test(async () => {
+  const app = await loadApp({ inject: WATCH_BRIDGE, data: { courses: [], rounds: [
+    makeRound('r', { holes: { 1: [{ id: 'p1', t: 1000, club: 'Driver' }, { id: 'p2', t: 3000, club: '7i' }] } }),
+    makeRound('other', { createdAt: Date.now() - DAY })
+  ], activeRoundId: 'r' } });
+  const apply = events => app.E(`applyWatchEvents(${JSON.stringify(events)})`);
+  const ev = o => Object.assign({ roundId: 'r', hole: 1 }, o);
+  const round = () => app.saved().rounds.find(r => r.id === 'r');
+  const hole = h => round().holes[h] || [];
+  const lastSnapshot = async () => { await wait(400); return JSON.parse(posted.filter(m => m.type === 'snapshot').at(-1).json); };
+
+  ok('the app says hello to the iOS side', posted.some(m => m.type === 'hello'));
+  let snap = await lastSnapshot();
+  ok('a snapshot is sent at start', !!snap.round && snap.round.id === 'r');
+  ok('snapshot: holes with par, strokes with ids, bag and club',
+    snap.round.holes.length === 9 && snap.round.holes[0].par === 4 && snap.round.strokes['1'].length === 2 && snap.round.strokes['1'][0].id === 'p1' && Array.isArray(snap.bag) && !!snap.club);
+
+  // Adding strokes
+  ok('applyWatchEvents answers true', apply([ev({ type: 'add', stroke: { id: 'w1', club: 'Hybrid', mods: ['rough', 'bogus'], t: 2000 } })]) === true);
+  ok('a watch stroke goes in by time, between the phone strokes', hole(1).map(s => s.id).join() === 'p1,w1,p2');
+  ok('known modifiers kept, unknown dropped', hole(1)[1].rough === true && !('bogus' in hole(1)[1]));
+  apply([ev({ type: 'add', stroke: { id: 'w1', club: 'Driver', mods: [], t: 9999 } })]);
+  ok('the same id twice is ignored, not overwritten', hole(1).length === 3 && hole(1)[1].club === 'Hybrid');
+  apply([ev({ hole: 2, type: 'add', stroke: { id: 'g1', club: 'Driver', mods: [], t: 10000, lat: 59, lng: 18, acc: 4 } })]);
+  ok('a position on the stroke is kept', hole(2)[0].lat === 59 && hole(2)[0].acc === 4);
+
+  // Removing
+  apply([ev({ type: 'remove', id: 'w2', t: Date.now() }), ev({ type: 'add', stroke: { id: 'w2', club: 'PW', mods: [], t: 5000 } })]);
+  ok('a removal that arrives first keeps the stroke out', !hole(1).some(s => s.id === 'w2') && round().removedStrokeIds.includes('w2'));
+  apply([ev({ type: 'remove', id: 'w1', t: Date.now() })]);
+  ok('remove takes the stroke out', !hole(1).some(s => s.id === 'w1'));
+  apply([ev({ type: 'add', stroke: { id: 'w1', club: 'Hybrid', mods: [], t: 2000 } })]);
+  ok('a removed stroke sent again stays removed', !hole(1).some(s => s.id === 'w1'));
+
+  // Late positions
+  apply([ev({ hole: 2, type: 'add', stroke: { id: 'g2', club: '7i', mods: [], t: 20000 } })]);
+  apply([ev({ hole: 2, type: 'position', id: 'g2', position: { lat: 59.0018, lng: 18, acc: 5 } })]);
+  ok('a late position fills in a missing one', hole(2)[1].lat === 59.0018);
+  apply([ev({ hole: 2, type: 'position', id: 'g2', position: { lat: 1, lng: 1, acc: 1 } })]);
+  ok('an existing position is not overwritten', hole(2)[1].lat === 59.0018);
+  apply([ev({ hole: 2, type: 'position', id: 'nope', position: { lat: 1, lng: 1, acc: 1 } })]);
+  ok('a position for an unknown stroke is ignored', hole(2).length === 2);
+  app.w.__h2 = hole(2);
+  const d = app.E('shotDistance(__h2, 0)');
+  ok('distance between two watch strokes is worked out (≈ 200 m)', d && Math.abs(d.m - 200.2) < 0.5, JSON.stringify(d));
+
+  // Finishing holes
+  apply([ev({ type: 'finish', t: 12345 })]);
+  ok('finish locks the hole, records when, and moves on', round().locked.includes(1) && round().lockedAt['1'] === 12345 && round().currentHole === 2);
+  ok('the round screen follows without a refresh', /Hole 2/.test(app.q('.holetitle').textContent));
+  apply([ev({ type: 'finish', t: 12346 })]);
+  ok('a repeated finish does not move on again', round().currentHole === 2);
+  ok('events for an unknown round are ignored', apply([{ type: 'add', roundId: 'nope', hole: 1, stroke: { id: 'x', club: '7i', mods: [], t: 1 } }]) === true);
+
+  // An open sheet is not re-rendered under the user's fingers
+  app.E("sheet = { type: 'note', scope: 'hole', hole: 2 }; render();");
+  app.d.getElementById('note-text').value = 'typing';
+  apply([ev({ hole: 3, type: 'add', stroke: { id: 'w3', club: '9i', mods: [], t: 7000 } })]);
+  await wait(20);
+  ok('an open sheet keeps the text being typed', app.d.getElementById('note-text').value === 'typing' && hole(3).length === 1);
+  app.E('sheet = null; render();');
+
+  snap = await lastSnapshot();
+  ok('the snapshot reflects the merges', snap.round.strokes['3'][0].id === 'w3' && snap.round.removed.includes('w1') && snap.round.locked.includes(1));
+  ok('the snapshot carries positions', snap.round.strokes['2'][1].lat === 59.0018);
+
+  // Hole locks
+  app.E('getRound().currentHole = 5; render();');
+  const tLock = Date.now();
+  app.E(`setHoleLock(getRound(), 5, ${tLock}); saveDb();`);
+  apply([ev({ hole: 5, type: 'add', stroke: { id: 'L1', club: '7i', mods: [], t: tLock + 1000 } })]);
+  ok('a stroke logged after the lock is refused and remembered', !hole(5).some(s => s.id === 'L1') && round().removedStrokeIds.includes('L1'));
+  apply([ev({ hole: 5, type: 'add', stroke: { id: 'L0', club: 'Driver', mods: [], t: tLock - 5000 } })]);
+  ok('a stroke logged before the lock still counts', hole(5).some(s => s.id === 'L0'));
+  apply([ev({ hole: 5, type: 'remove', id: 'L0', t: tLock + 2000 })]);
+  apply([ev({ hole: 5, type: 'remove', id: 'L0' })]);
+  ok('removals on a locked hole are ignored, with or without a time', hole(5).some(s => s.id === 'L0'));
+  app.E('getRound().locked.push(6); saveDb();');
+  apply([ev({ hole: 6, type: 'add', stroke: { id: 'L6', club: '7i', mods: [], t: 5 } })]);
+  ok('a hole locked before lock times were kept counts as locked from the start', !hole(6).some(s => s.id === 'L6'));
+  app.E('unlockHole(); saveDb();');
+  ok('unlocking clears the lock and its time', !round().locked.includes(5) && !(round().lockedAt || {})['5']);
+  apply([ev({ hole: 5, type: 'add', stroke: { id: 'L2', club: 'PW', mods: [], t: Date.now() } })]);
+  ok('after unlocking, strokes are accepted again', hole(5).some(s => s.id === 'L2'));
+  ok('a refused stroke stays refused', !hole(5).some(s => s.id === 'L1'));
+  app.E('getRound().currentHole = 8; doneHole();');
+  ok('Done on the phone records the lock time', Number.isFinite(round().lockedAt['8']));
+
+  // Finished rounds
+  app.E("view = 'card'; render(); finishRound();");
+  const finishedAt = round().finishedAt;
+  apply([ev({ hole: 3, type: 'add', stroke: { id: 'F1', club: 'PW', mods: [], t: finishedAt + 10 } })]);
+  ok('a stroke logged after finishing is refused', !hole(3).some(s => s.id === 'F1') && round().removedStrokeIds.includes('F1'));
+  apply([ev({ hole: 3, type: 'add', stroke: { id: 'F0', club: 'SW', mods: [], t: finishedAt - 1000 } })]);
+  ok('a stroke logged before finishing still counts', hole(3).some(s => s.id === 'F0'));
+  apply([ev({ hole: 3, type: 'remove', id: 'w3', t: Date.now() })]);
+  ok('removals after finishing are ignored', hole(3).some(s => s.id === 'w3'));
+  apply([ev({ hole: 3, type: 'finish', t: Date.now() })]);
+  ok('finishing a hole after the round is finished is ignored', !round().locked.includes(3));
+  snap = await lastSnapshot();
+  ok('a finished round is sent finished, every hole locked', snap.round.finished === true && snap.round.locked.length === 9);
+
+  // Which round the watch shows
+  app.E("openRound('other')");
+  snap = await lastSnapshot();
+  ok('opening a round sends it to the watch', snap.round.id === 'other');
+  app.E("closeRound(); openRound('r')");
+  snap = await lastSnapshot();
+  ok('opening a finished round leaves the watch alone', snap.round.id === 'other');
+  app.E("db.rounds = db.rounds.filter(r => r.id !== 'other'); saveDb();");
+  snap = await lastSnapshot();
+  ok('deleting the watch round sends no round', snap.round === null);
+});
+</script>

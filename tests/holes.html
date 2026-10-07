@@ -1,0 +1,84 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Holes</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// Playing a hole: Done and the lock slider, marking the hole's position, the reminder on Done, and the
+// distance to the hole in exports.
+test(async () => {
+  const app = await loadApp({ data: { courses: [], rounds: [makeRound('r', { holeData: {} })], activeRoundId: 'r' } });
+  const round = () => app.saved().rounds[0];
+  const fix = (lat, lng, acc) => app.E(`lastFix = { lat: ${lat}, lng: ${lng}, acc: ${acc}, t: Date.now() }`);
+  const slide = async action => { app.q(`.unlock-knob[data-slide="${action}"]`).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })); await wait(20); };
+
+  // Distance to the hole
+  app.w.__l = [{ club: 'Driver', lat: 59, lng: 18, acc: 3 }, { club: '7i', lat: 59.0005, lng: 18.0001, acc: 3 },
+               { club: 'Putter', lat: 59.00099, lng: 18, acc: 3 }, { club: 'SW' }, { club: 'Penalty', lat: 59, lng: 18, acc: 3 }];
+  app.w.__p = { lat: 59.001, lng: 18, acc: 3 };
+  const dh = app.E('distanceToHole(__l, 0, __p)');
+  ok('distance to the hole from the tee (≈ 111 m)', Math.abs(dh.m - 111.2) < 0.5 && !dh.approx, JSON.stringify(dh));
+  ok('none for Putter, Penalty, a stroke without position, or no hole',
+    app.E('[distanceToHole(__l, 2, __p), distanceToHole(__l, 4, __p), distanceToHole(__l, 3, __p), distanceToHole(__l, 0, null)].every(d => d === null)'));
+  ok('shot distance to the next stroke (≈ 56 m)', Math.abs(app.E('shotDistance(__l, 0)').m - 55.7) < 0.5);
+
+  // Marking the hole
+  ok('Mark hole button next to Done', !!app.q('.actions [data-action=mark-hole]'));
+  app.E('lastFix = null');
+  await app.click('[data-action=mark-hole]');
+  ok('no GPS fix: nothing saved, a toast says so', app.d.getElementById('toast').textContent === 'No GPS fix yet' && !round().holePositions);
+  fix(59, 18, 4.2);
+  await app.click('[data-action=add]');
+  await app.click('[data-action=done-hole]');
+  ok('Done without a marked hole asks once', !!app.q('[data-action=mark-and-done]') && round().currentHole === 1);
+  await app.click('[data-action=skip-mark]');
+  ok('Skip carries on to the next hole and locks this one', round().currentHole === 2 && round().locked.includes(1) && !app.q('.sheet'));
+  app.E('getRound().currentHole = 1; unlockHole();');
+  await app.click('[data-action=done-hole]');
+  ok('the reminder is not shown twice for a hole', !app.q('.sheet') && round().currentHole === 2);
+  await app.click('[data-action=done-hole]');
+  ok('no reminder on a hole without strokes', !app.q('.sheet') && round().currentHole === 3);
+
+  fix(59, 18, 4.2);
+  await app.click('[data-action=add]');
+  fix(59.0005, 18.0001, 5);
+  app.E("db.club = '7i'");
+  await app.click('[data-action=add]');
+  fix(59.001, 18, 4.2);
+  await app.click('[data-action=mark-hole]');
+  ok('marking saves the position and time', round().holePositions['3'].lat === 59.001 && typeof round().holePositions['3'].t === 'number');
+  const toast = app.d.getElementById('toast');
+  ok('toast shows the accuracy, coloured good', toast.textContent === 'Hole marked (±4 m)' && toast.dataset.level === 'good', toast.textContent);
+  ok('the hole info shows the pin and accuracy', /±4 m/.test(app.q('.holeinfo .hole-pin').textContent));
+  ok('the button shows the hole is marked', app.q('[data-action=mark-hole]').classList.contains('has'));
+  fix(59.00101, 18, 30);
+  await app.click('[data-action=mark-hole]');
+  ok('marking again overwrites; poor accuracy is coloured bad', round().holePositions['3'].lat === 59.00101 && toast.dataset.level === 'bad');
+  fix(59.001, 18, 4.2);
+  await app.click('[data-action=mark-hole]');
+  await app.click('[data-action=done-hole]');
+  ok('no reminder when the hole is marked', !app.q('.sheet') && round().currentHole === 4);
+  await app.click('[data-action=add]');
+  await app.click('[data-action=done-hole]');
+  await app.click('[data-action=mark-and-done]');
+  ok('Mark now marks the hole and moves on', !!round().holePositions['4'] && round().currentHole === 5 && !app.q('.sheet'));
+
+  // Exports
+  const text = app.E("roundExportText(db.rounds.find(r => r.id === 'r'))");
+  ok('round text: hole marked and distance to hole per stroke', /hole marked \(±4 m\)/.test(text) && /2\. 7i · 56 m to hole/.test(text), text.split('\n').filter(l => /Hole 3|^\s+\d\./.test(l)).join(' | '));
+  app.E('window.__copied = null; copyText = async t => { window.__copied = t; }; exportData();');
+  await wait(20);
+  const metrics = JSON.parse(app.w.__copied).holeMetrics.find(m => m.roundId === 'r');
+  ok('JSON export: holeMetrics with distance to hole', metrics && metrics.holes['3'].length === 2 && Math.abs(metrics.holes['3'][0].toHole - 111.2) < 0.5 && !metrics.holes['1']);
+
+  // Hole lock slider
+  app.E('getRound().currentHole = 3; render();');
+  ok('a locked hole shows the unlock slider, not the stroke controls', !!app.q('.unlock-knob[data-slide="unlock-hole"]') && !app.q('[data-action=add]'));
+  ok('its strokes can only be viewed', !app.q('[data-action=edit-stroke]'));
+  const knob = app.q('.unlock-knob[data-slide="unlock-hole"]');
+  knob.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  ok('a partial slide does nothing', round().locked.includes(3));
+  await slide('unlock-hole');
+  ok('a full slide unlocks the hole', !round().locked.includes(3) && !!app.q('[data-action=add]'));
+});
+</script>

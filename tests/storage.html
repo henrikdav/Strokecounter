@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Storage</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// Saved data: migrations on load, stroke ids, edits and deletes by id, and Restore from backup.
+test(async () => {
+  // A save from before stroke ids and tees existed.
+  let app = await loadApp({ data: {
+    courses: [{ id: 'c', name: 'Old course', holes: Array.from({ length: 9 }, () => ({ par: 4, length: 300, index: null })) }],
+    rounds: [makeRound('r', { holes: { 1: [{ t: 1000, club: 'Driver' }, { t: 3000, club: '7i' }] } })],
+    activeRoundId: 'r'
+  } });
+  ok('no iOS bridges in a plain browser', app.E('watchBridge') === undefined && app.E('courseMapBridge') === undefined);
+  let saved = app.saved();
+  const ids = saved.rounds[0].holes['1'].map(s => s.id);
+  ok('strokes without ids get one', ids.every(id => typeof id === 'string' && id.length >= 10));
+  ok('ids are unique', new Set(ids).size === 2);
+  ok('old courses get a Standard tee', saved.courses[0].tees.length === 1 && saved.courses[0].tees[0].name === 'Standard');
+
+  app = await loadApp();
+  ok('ids stay the same after a reload', JSON.stringify(app.saved().rounds[0].holes['1'].map(s => s.id)) === JSON.stringify(ids));
+
+  app.E("db.club = '9i'");
+  await app.click('[data-action=add]');
+  const added = app.saved().rounds[0].holes['1'][2];
+  ok('a new stroke gets an id', !!added.id && added.club === '9i');
+
+  await app.click(`[data-action=edit-stroke][data-id="${ids[1]}"]`);
+  ok('the edit sheet finds the stroke by id', /Stroke 2 on hole 1/.test(app.q('.sheet h2').textContent));
+  await app.click('[data-action=delete-stroke]');
+  saved = app.saved().rounds[0];
+  ok('delete removes that stroke and remembers it', saved.holes['1'].map(s => s.club).join() === 'Driver,9i' && saved.removedStrokeIds.includes(ids[1]));
+
+  // Restore from backup, opened from the settings sheet.
+  app.E('closeRound()');
+  await app.click('[data-action=settings]');
+  await app.click('.sheet [data-action=restore]');
+  const text = () => app.d.getElementById('restore-text');
+  const error = () => app.d.getElementById('restore-error');
+  const check = async value => { text().value = value; await app.click('[data-action=check-restore]'); };
+  await check('{not json');
+  ok('invalid JSON: error in the sheet, text kept', !error().hidden && /not valid JSON/.test(error().textContent) && text().value === '{not json');
+  await check('[1,2]');
+  ok('an array is not a backup', /does not look like a backup/.test(error().textContent));
+  await check('{"rounds":[]}');
+  ok('a backup needs courses too', /does not look like a backup/.test(error().textContent));
+  await check('{"rounds":[{"x":1}],"courses":[]}');
+  ok('a round without id or holes is refused', /rounds in the backup/.test(error().textContent));
+  ok('nothing saved by a refused backup', app.saved().rounds[0].id === 'r');
+
+  const backup = { exportedAt: 'x', activeClubs: ['Driver', '7i', 'Putter'],
+    courses: [{ id: 'c1', name: 'Oldstyle', holes: Array.from({ length: 9 }, () => ({ par: 4, length: 300, index: null })) }],
+    rounds: [makeRound('b1', { createdAt: Date.now() - DAY, holes: { 1: [{ t: 1, club: 'Driver' }] }, holePositions: { 1: { lat: 59, lng: 18, acc: 4, t: 1 } } }),
+             makeRound('b2', { createdAt: Date.now(), holes: {} })] };
+  app.E('db.allowance = 90; saveDb();');
+  await check(JSON.stringify(backup));
+  const sheetText = app.q('.sheet').textContent;
+  ok('confirmation step counts both sides', !!app.q('[data-action=confirm-restore]') && /2 rounds and 1 course\b/.test(sheetText), sheetText);
+  ok('nothing saved before confirming', app.saved().rounds[0].id === 'r');
+  await app.click('[data-action=confirm-restore]');
+  saved = app.saved();
+  ok('backup replaces rounds and courses', saved.rounds.length === 2 && saved.courses.length === 1 && !('exportedAt' in saved));
+  ok('restored strokes get ids', saved.rounds[0].holes['1'][0].id);
+  ok('restored courses get tees', Array.isArray(saved.courses[0].tees));
+  ok('bag comes from the backup', saved.activeClubs.join() === 'Driver,7i,Putter');
+  ok('settings not in the backup are kept', saved.allowance === 90);
+  ok('hole positions survive', saved.rounds[0].holePositions['1'].lat === 59);
+  ok('sheet closes and home shows the rounds', !app.q('.sheet') && !!app.q('.continue'));
+
+  // Export carries everything Restore needs.
+  app.E('window.__copied = null; copyText = async t => { window.__copied = t; };');
+  await app.click('[data-action=settings]');
+  await app.click('.sheet [data-action=export]');
+  const exported = JSON.parse(app.w.__copied);
+  ok('export has rounds, courses and bag', exported.rounds.length === 2 && exported.courses.length === 1 && exported.activeClubs.length === 3);
+});
+</script>

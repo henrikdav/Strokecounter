@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Scoring</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// Handicap strokes, gross, net (capped at net double bogey), Stableford points and their totals.
+test(async () => {
+  // Hole 1 is a par 5 with index 1; a playing handicap of 10 over nine holes gives it 2 extra strokes and the
+  // other holes 1 each.
+  const pars = [5, 4, 3, 4, 4, 3, 5, 4, 4];
+  const scored = (id, hole1) => makeRound(id, { holeData: holeData(pars), handicap: { base: 10, allowance: 100 },
+    holes: { 1: strokes(hole1, id + 'a'), 2: strokes(4, id + 'b'), 3: strokes(2, id + 'c'), 4: strokes(6, id + 'd') } });
+  const app = await loadApp({ data: { courses: [], rounds: [
+    scored('ten', 10), scored('nine', 9), scored('eight', 8), scored('five', 5),
+    makeRound('nohcp', { holes: { 1: strokes(5) } }),
+    makeRound('noindex', { handicap: { base: 10, allowance: 100 }, holeData: { ...holeData(), 3: { par: 4, length: 300, index: null } } }),
+    makeRound('allowance', { handicap: { base: 10, allowance: 90 } })
+  ] } });
+  const R = id => `db.rounds.find(r => r.id === '${id}')`;
+  const score = (id, h) => app.E(`holeScore(${R(id)}, ${h}, true)`);
+  const total = id => app.E(`sumScores(holeNumbers(${R(id)}).map(h => holeScore(${R(id)}, h, true)))`);
+
+  ok('hardest hole gets 2 extra strokes, the rest 1', app.E(`strokesReceived(${R('ten')}, 1)`) === 2 && app.E(`strokesReceived(${R('ten')}, 2)`) === 1);
+  ok('extra strokes add up to the playing handicap', app.E(`holeNumbers(${R('ten')}).reduce((s, h) => s + strokesReceived(${R('ten')}, h), 0)`) === 10);
+  ok('no handicap: no extra strokes', app.E(`strokesReceived(${R('nohcp')}, 1)`) === null);
+  ok('a hole without index: no extra strokes anywhere', app.E(`strokesReceived(${R('noindex')}, 1)`) === null);
+  ok('allowance is applied and rounded', app.E(`adjustedHandicap(${R('allowance')})`) === 9);
+
+  const s10 = score('ten', 1);
+  ok('gross counts every stroke (+5)', s10.diff === 5 && s10.shown === 10);
+  ok('net is capped at net double bogey (+2)', s10.net === 2, s10.net);
+  ok('exactly net double bogey: +2', score('nine', 1).net === 2);
+  ok('below the cap: not capped (+1)', score('eight', 1).net === 1);
+  ok('Stableford never below 0', s10.points === 0);
+  ok('net birdie-plus: 2 under net, 4 points', score('five', 1).net === -2 && score('five', 1).points === 4);
+  ok('an unplayed hole has no result', score('ten', 5).played === false && score('ten', 5).net === null);
+
+  const t10 = total('ten'), t9 = total('nine');
+  ok('total net: 10 strokes on the capped hole counts as 9', t10.net === t9.net, `${t10.net} vs ${t9.net}`);
+  ok('total gross and strokes still differ by one', t10.diff === t9.diff + 1 && t10.strokes === t9.strokes + 1);
+
+  ok('to-par format', app.E("[fmtToPar(0), fmtToPar(3), fmtToPar(-2), fmtToPar(null)].join(' ')") === 'E +3 −2 –');
+
+  app.E(`openRound('ten')`);
+  const text = app.E('roundExportText(getRound())');
+  ok('export shows strokes, gross, capped net and points', /10 strokes \(\+5 gross, \+2 net, 0 points\)/.test(text), text.split('\n').slice(0, 10).join(' | '));
+});
+</script>

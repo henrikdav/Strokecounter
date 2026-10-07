@@ -154,9 +154,34 @@ and `WatchStore.swift` and `Models.swift` in the watch app.
 
 ## Testing
 
-There are no automated tests in the repo yet. Changes have been checked with throwaway pages that load
-`index.html` in an iframe in headless Chrome and call its functions directly, plus the iOS and watch simulators.
-Adding those checks under `tests/` is the next planned step.
+```sh
+tests/run.sh              # every page; prints failures only
+tests/run.sh -v scoring   # one page, every check
+```
+
+Each `tests/*.html` page loads `web/index.html` into an iframe (through `tests/harness.js`), sets up saved data,
+calls the app's functions and clicks its buttons, and reports PASS or FAIL per check. `run.sh` serves the repo
+with `python3 -m http.server`, opens each page in headless Chrome and exits 1 if any check fails. It needs
+python3 and Chrome (set `CHROME=/path/to/chrome` if it isn't found).
+
+| Page | Covers |
+| --- | --- |
+| `scoring` | Handicap strokes, gross, net with the net double bogey cap, Stableford, totals, export text |
+| `storage` | Migrations on load, stroke ids, edit and delete by id, Restore from backup, export |
+| `holes` | Done and the hole lock slider, marking the hole, the reminder on Done, distance to the hole |
+| `finish-round` | Finishing and unlocking a round, and what is read-only while finished |
+| `home` | Stats, Continue card, Past rounds and net badges, swipe to delete, settings |
+| `navigation` | Where Back goes from the scorecard and hole views |
+| `watch-sync` | Snapshots to the watch and `applyWatchEvents`: merging, removals, positions, locks, finished rounds |
+| `gps` | The GPS watch: restarts after a denied error and on return to the app, the status pill |
+| `gps-shim` | `ios/StrokeCounter/gps-shim.js` with a fake native bridge |
+| `course-map` | The Map button and what it sends to the native map |
+
+The iOS bridges are faked with a script put at the top of the app's `<head>` (`WATCH_BRIDGE`, `MAP_BRIDGE` in
+`harness.js`). The Swift code is not covered; check it in the simulators.
+
+The GitHub workflow runs the tests before every deploy and publishes nothing when one fails. Add a page, or
+checks to a page, with each change to the rules.
 
 ## Conventions
 

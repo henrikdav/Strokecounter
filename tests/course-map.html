@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Course map</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// The Map button exists only inside the iOS app and sends the hole's strokes, marked hole and fix to the native map.
+test(async () => {
+  const data = { courses: [], activeRoundId: 'r', rounds: [makeRound('r', {
+    holes: { 1: [{ id: 'a', t: 1, club: 'Driver', lat: 59, lng: 18, acc: 4 }, { id: 'b', t: 2, club: '7i' }, { id: 'c', t: 3, club: 'PW', lat: 59.001, lng: 18, acc: 6 }] },
+    holePositions: { 1: { lat: 59.002, lng: 18, acc: 3, t: 4 } } })] };
+  let app = await loadApp({ data });
+  ok('no Map button in a browser', !app.q('[data-action=course-map]'));
+
+  app = await loadApp({ inject: MAP_BRIDGE, data });
+  ok('the Map button shows inside the app', !!app.q('[data-action=course-map]'));
+  app.E('lastFix = { lat: 59.0015, lng: 18, acc: 5, t: Date.now() }');
+  await app.click('[data-action=course-map]');
+  const message = posted.at(-1);
+  ok('it sends the hole number', message && message.hole === 1);
+  ok('only strokes with a position, numbered as on the hole', message.strokes.map(s => `${s.n}:${s.club}`).join() === '1:Driver,3:PW');
+  ok('the marked hole', message.holePosition && message.holePosition.lat === 59.002);
+  ok('the current fix', message.fix && message.fix.lat === 59.0015);
+});
+</script>

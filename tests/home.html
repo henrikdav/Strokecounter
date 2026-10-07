@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Home</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// The home screen: stats, the Continue card, Past rounds with net badges, swipe to delete, the settings sheet.
+test(async () => {
+  const now = Date.now();
+  const nine = n => { const holes = {}; for (let h = 1; h <= 9; h++) holes[h] = strokes(n, `h${h}-${n}-`); return holes; };
+  const hcp = { base: 9, allowance: 100 };   // one extra stroke per hole on the nine par 4s
+  const app = await loadApp({ data: { courses: [], rounds: [
+    makeRound('Even', { createdAt: now - DAY, finished: true, finishedAt: now, handicap: hcp, holes: nine(5) }),
+    makeRound('Plus9', { createdAt: now - 3 * DAY, finished: true, finishedAt: now, handicap: hcp, holes: nine(6) }),
+    makeRound('NoHcp', { createdAt: now - 2 * 3600000, finished: true, finishedAt: now, holes: nine(4) }),
+    makeRound('OldOpen', { createdAt: now - 10 * DAY, holes: { 1: strokes(1, 'o') } }),
+    makeRound('Current', { createdAt: now - 600000, currentHole: 5, holes: { 1: strokes(1, 'c1'), 2: strokes(1, 'c2'), 3: strokes(1, 'c3'), 4: strokes(1, 'c4') } })
+  ] } });
+  const stats = () => app.qa('.stat b').map(b => b.textContent);
+  const badge = id => { const b = app.q(`.past-card[data-id="${id}"] .net-badge`); return b ? b.className.replace('net-badge ', '') + ':' + b.textContent : 'none'; };
+
+  // Calendar-month counting depends on today's date: "Even" was yesterday and "Plus9" three days ago.
+  const sameMonth = t => new Date(t).getMonth() === new Date(now).getMonth();
+  const expectedMonth = 1 + [now - DAY, now - 3 * DAY].filter(sameMonth).length;
+  ok('stats: finished rounds this month, average and best net', JSON.stringify(stats()) === JSON.stringify([String(expectedMonth), '+4.5', 'E']), JSON.stringify(stats()));
+  ok('average over par is red, even par is not', app.q('.stat:nth-child(2) b').classList.contains('over') && !app.q('.stat:nth-child(3) b').classList.contains('over'));
+  const cont = app.q('.continue');
+  ok('Continue card for the newest unfinished round', cont && cont.dataset.id === 'Current' && /In progress · hole 5/.test(cont.textContent) && /4 of 9 holes/.test(cont.textContent));
+  ok('Past rounds newest first, without the current one', app.qa('.past-card').map(c => c.dataset.id).join() === 'NoHcp,Even,Plus9,OldOpen');
+  ok('badges: E green, +9 red, none without handicap, Not finished for old unfinished rounds',
+    [badge('Even'), badge('Plus9'), badge('NoHcp'), badge('OldOpen')].join() === 'under:E,over:+9,none,neutral:Not finished',
+    [badge('Even'), badge('Plus9'), badge('NoHcp'), badge('OldOpen')].join());
+  ok('row text: day, holes, strokes', /Yesterday · 9 holes · 45 strokes/.test(app.q('.past-card[data-id="Even"]').textContent) && /1 of 9 holes · 1 stroke$/.test(app.q('.past-card[data-id="OldOpen"] .past-meta').textContent));
+  ok('the badge uses the scorecard\'s numbers', app.E("roundNet(db.rounds.find(r => r.id === 'Plus9'))") === app.E("sumScores(holeNumbers(db.rounds.find(r => r.id === 'Plus9')).map(h => holeScore(db.rounds.find(r => r.id === 'Plus9'), h, true))).net"));
+  ok('no utility links or ✕ on the home screen', !app.q('main [data-action=courses]') && !app.q('[data-action=export]') && !app.q('[data-action=restore]') && !app.q('[data-action=edit-bag]') && !app.d.body.textContent.includes('✕'));
+  ok('New round is the button at the bottom', !!app.q('.dock .primary[data-action=new-round]'));
+
+  // Swipe left to delete
+  const card = app.q('.past-card[data-id="Plus9"]');
+  const r = card.getBoundingClientRect(), y = r.top + r.height / 2;
+  const pointer = (type, x, yy = y) => card.dispatchEvent(new app.w.PointerEvent(type, { bubbles: true, pointerId: 7, clientX: x, clientY: yy, isPrimary: true }));
+  const swipe = async (from, to) => { pointer('pointerdown', from); pointer('pointermove', from - 10); pointer('pointermove', to); pointer('pointerup', to); await wait(500); };
+  pointer('pointerdown', 300); pointer('pointermove', 290); pointer('pointermove', 200); pointer('pointerup', 200);
+  card.dispatchEvent(new app.w.MouseEvent('click', { bubbles: true }));
+  await wait(20);
+  ok('swiping left opens the row, the click after it opens nothing', card.classList.contains('open') && app.E('openRowId') === 'Plus9' && app.E('view') === 'list');
+  await wait(500);
+  await app.click('.past-card[data-id="Even"]');
+  ok('with a row open, a tap closes it instead of opening a round', !card.classList.contains('open') && app.E('view') === 'list');
+  await swipe(300, 270);
+  ok('a short swipe springs back', !card.classList.contains('open'));
+  pointer('pointerdown', 300); pointer('pointermove', 296, y + 30); pointer('pointermove', 280, y + 60); pointer('pointerup', 280, y + 60);
+  await wait(500);
+  ok('a vertical drag scrolls instead', !card.classList.contains('open'));
+
+  await swipe(300, 180);
+  let asked = 0;
+  app.w.confirm = () => { asked++; return false; };
+  await app.click('.past-del[data-id="Plus9"]');
+  ok('Delete asks first; Cancel keeps the round', asked === 1 && app.E("db.rounds.some(r => r.id === 'Plus9')"));
+  app.w.confirm = message => { asked++; app.w.__message = message; return true; };
+  await swipe(300, 180);
+  await app.click('.past-del[data-id="Plus9"]');
+  ok('OK deletes it, with the same question as before', !app.E("db.rounds.some(r => r.id === 'Plus9')") && app.w.__message === 'Delete this round? This cannot be undone.' && !app.q('.past-card[data-id="Plus9"]'));
+  ok('stats follow', stats().slice(1).join() === 'E,E');
+
+  // Opening rounds
+  await app.click('.past-card[data-id="Even"]');
+  ok('a finished round opens on its scorecard', app.E('view') === 'card' && app.E('roundId') === 'Even');
+  app.E("view = 'list'; render();");
+  await app.click('.continue');
+  ok('Continue opens the round to play', app.E('view') === 'round' && app.E('roundId') === 'Current');
+  app.E('closeRound()');
+
+  // Settings
+  await app.click('[data-action=settings]');
+  ok('the gear opens settings with the four items', ['courses', 'edit-bag', 'export', 'restore'].every(a => app.q(`.sheet [data-action=${a}]`)));
+  await app.click('.sheet [data-action=edit-bag]');
+  ok('My bag opens the bag', app.E('sheet && sheet.type') === 'bag');
+  app.E("sheet = { type: 'settings' }; render();");
+  await app.click('.sheet [data-action=courses]');
+  ok('My courses opens courses and closes settings', app.E('view') === 'courses' && app.E('sheet') === null);
+  app.E("view = 'list'; sheet = null; render();");
+  await app.click('[data-action=new-round]');
+  ok('New round opens the new-round sheet', app.E('sheet && sheet.type') === 'new');
+
+  // Nothing to show
+  app.E("sheet = null; db.rounds = db.rounds.filter(r => r.id === 'NoHcp'); render();");
+  ok('no net data: dashes, no Continue card', stats().slice(1).join() === '–,–' && !app.q('.continue'));
+  app.E('db.rounds = []; render();');
+  ok('no rounds: 0, dashes and a hint', stats()[0] === '0' && /No rounds yet/.test(app.d.body.textContent) && !app.q('.past-head'));
+});
+</script>
