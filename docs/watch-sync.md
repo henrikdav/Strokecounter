@@ -12,7 +12,7 @@ exists so that a stroke is never lost or counted twice, whichever messages arriv
 | --- | --- | --- |
 | Web app (in the iOS app's web view) | `sendWatchSnapshot`, `applyWatchEvents` in `web/index.html` | Builds snapshots; merges events into the saved round |
 | iOS app | `ios/StrokeCounter/WatchBridge.swift` | Relays between the web app and WatchConnectivity; keeps incoming events on disk until the web app has applied them |
-| Watch app | `watch/StrokeCounterWatch/WatchStore.swift`, `Models.swift` | Shows the round, logs events, keeps the outbox |
+| Watch app | `RoundState.swift` (the rules), `SyncClient.swift` (WatchConnectivity), `WatchStore.swift` (ties them together), `Models.swift` (the formats) in `watch/StrokeCounterWatch/` | Shows the round, logs events, keeps the outbox |
 
 Inside the iOS app the web app and `WatchBridge` talk through the `watch` message handler:
 
@@ -146,5 +146,6 @@ The watch app is updated separately from the iPhone app (and sometimes later), s
 ## Testing
 
 `tests/watch-sync.html` covers the phone side: snapshots, every rule of `applyWatchEvents`, and versions
-(`tests/run.sh watch-sync`). The Swift side is checked with a paired iPhone and Apple Watch simulator; see the
-README for the simulators' limits.
+(`tests/run.sh watch-sync`). `watch/StrokeCounterWatchTests/RoundStateTests.swift` covers the watch's rules: what
+is shown, what is refused, confirmation and versions. The transport is checked with a paired iPhone and Apple
+Watch simulator; see the README for the simulators' limits.

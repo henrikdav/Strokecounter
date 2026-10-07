@@ -87,6 +87,7 @@ xcodegen also writes `watch/StrokeCounterWatch/Info.plist` and `StrokeCounterWat
 | --- | --- | --- | --- |
 | `StrokeCounter` (iOS) | `com.henrikdav.StrokeCounter` | iOS 17 | `ios/StrokeCounter/`, plus `web/` copied in as a folder |
 | `StrokeCounterWatch` | `com.henrikdav.StrokeCounter.watchkitapp` | watchOS 10 | `watch/StrokeCounterWatch/` |
+| `StrokeCounterWatchTests` | `com.henrikdav.StrokeCounter.watchkitapp.tests` | watchOS 10 | `watch/StrokeCounterWatchTests/` (unit tests) |
 
 The watch app is embedded in the iOS app (`StrokeCounter.app/Watch/`). `web/` is copied into the iOS app when it
 is built, so **a change to `index.html` reaches the iOS app only after a rebuild**. The watch app uses HealthKit
@@ -178,7 +179,18 @@ python3 and Chrome (set `CHROME=/path/to/chrome` if it isn't found).
 | `course-map` | The Map button and what it sends to the native map |
 
 The iOS bridges are faked with a script put at the top of the app's `<head>` (`WATCH_BRIDGE`, `MAP_BRIDGE` in
-`harness.js`). The Swift code is not covered; check it in the simulators.
+`harness.js`).
+
+The watch app's round logic (`RoundState`: what is shown, what is refused, when an event counts as confirmed) has
+unit tests in `watch/StrokeCounterWatchTests/`, run on a watch simulator:
+
+```sh
+cd ios && xcodebuild test -project StrokeCounter.xcodeproj -scheme StrokeCounterWatch \
+  -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)'
+```
+
+The rest of the Swift code (WatchConnectivity, GPS, HealthKit, the iOS bridges) is checked in the simulators.
+The watch tests need macOS, so the GitHub workflow runs only the web tests.
 
 The GitHub workflow runs the tests before every deploy and publishes nothing when one fails. Add a page, or
 checks to a page, with each change to the rules.
