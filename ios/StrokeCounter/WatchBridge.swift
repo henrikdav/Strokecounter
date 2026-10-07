@@ -1,3 +1,4 @@
+import HealthKit
 import UIKit
 import WatchConnectivity
 import WebKit
@@ -23,6 +24,7 @@ final class WatchBridge: NSObject, WKScriptMessageHandler, WCSessionDelegate {
     private var lastSnapshot = UserDefaults.standard.string(forKey: "watchSnapshot")
     private let session: WCSession? = WCSession.isSupported() ? WCSession.default : nil
     private let pendingURL = URL.applicationSupportDirectory.appending(path: "watch-pending.json")
+    private let healthStore = HKHealthStore()
 
     private override init() {
         super.init()
@@ -46,6 +48,8 @@ final class WatchBridge: NSObject, WKScriptMessageHandler, WCSessionDelegate {
             lastSnapshot = json
             UserDefaults.standard.set(json, forKey: "watchSnapshot")
             pushSnapshot()
+        case "start-watch-app":
+            startWatchApp()
         default:
             break
         }
@@ -58,6 +62,21 @@ final class WatchBridge: NSObject, WKScriptMessageHandler, WCSessionDelegate {
         try? session.updateApplicationContext(["snapshot": json])
         if session.isReachable {
             session.sendMessage(["snapshot": json], replyHandler: nil, errorHandler: nil)
+        }
+    }
+
+    // A round was started (or continued) on the phone: launch the watch app with a golf workout, so it is on the
+    // wrist without being opened by hand. The watch app starts the workout for the round (handle(_:) in
+    // StrokeCounterWatchApp.swift). Needs the watch on the wrist, unlocked and nearby; otherwise nothing happens
+    // and the watch app is opened by hand as before. HealthKit asks once for permission to start workouts.
+    private func startWatchApp() {
+        guard HKHealthStore.isHealthDataAvailable(), let session, session.activationState == .activated,
+              session.isPaired, session.isWatchAppInstalled else { return }
+        let configuration = HKWorkoutConfiguration()
+        configuration.activityType = .golf
+        configuration.locationType = .outdoor
+        healthStore.requestAuthorization(toShare: [HKObjectType.workoutType()], read: []) { [healthStore] _, _ in
+            healthStore.startWatchApp(with: configuration) { _, _ in }
         }
     }
 

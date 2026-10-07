@@ -37,15 +37,21 @@ final class RoundWorkout: NSObject, HKWorkoutSessionDelegate {
         session.startActivity(with: Date())
     }
 
-    // Ends the session without saving a workout.
+    // Ends the session without saving a workout. It is let go of at once, so a new round's session can start
+    // right after, without waiting for watchOS to confirm the end.
     func end() {
-        session?.end()
+        guard let session else { return }
+        session.end()
+        self.session = nil
+        roundId = nil
+        onChange?()
     }
 
     func workoutSession(_ workoutSession: HKWorkoutSession, didChangeTo toState: HKWorkoutSessionState,
                         from fromState: HKWorkoutSessionState, date: Date) {
         DispatchQueue.main.async {
-            if toState == .ended {
+            // Only the current session counts; one already let go of by end() may still report its ending.
+            if toState == .ended, workoutSession === self.session {
                 self.session = nil
                 self.roundId = nil
             }
@@ -55,6 +61,7 @@ final class RoundWorkout: NSObject, HKWorkoutSessionDelegate {
 
     func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
         DispatchQueue.main.async {
+            guard workoutSession === self.session else { return }
             self.session = nil
             self.roundId = nil
             self.onChange?()

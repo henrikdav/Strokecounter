@@ -15,6 +15,11 @@ targets:
     platform: iOS
     dependencies:
       - target: StrokeCounterWatch
+    # HealthKit, only to start the watch app with a golf workout when a round starts (nothing is saved to Health).
+    entitlements:
+      path: StrokeCounter/StrokeCounter.entitlements
+      properties:
+        com.apple.developer.healthkit: true
     sources:
       - StrokeCounter
       # Temporary scaffold: the web app is copied into the bundle as a folder (web/index.html).
@@ -30,6 +35,8 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Used to measure shot distances and track your position on the course during a round.
+        INFOPLIST_KEY_NSHealthShareUsageDescription: Stroke Counter does not read any health data.
+        INFOPLIST_KEY_NSHealthUpdateUsageDescription: Starts Stroke Counter on your Apple Watch with a golf workout when you start a round. The workout is not saved to Health.
         TARGETED_DEVICE_FAMILY: "1"
 
   # Native Apple Watch app (sources in ../watch), embedded in the iOS app and synced with it over WatchConnectivity.

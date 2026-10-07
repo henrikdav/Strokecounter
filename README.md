@@ -90,8 +90,10 @@ xcodegen also writes `watch/StrokeCounterWatch/Info.plist` and `StrokeCounterWat
 | `StrokeCounterWatchTests` | `com.henrikdav.StrokeCounter.watchkitapp.tests` | watchOS 10 | `watch/StrokeCounterWatchTests/` (unit tests) |
 
 The watch app is embedded in the iOS app (`StrokeCounter.app/Watch/`). `web/` is copied into the iOS app when it
-is built, so **a change to `index.html` reaches the iOS app only after a rebuild**. The watch app uses HealthKit
-only to run a golf workout session during a round; nothing is saved to Health.
+is built, so **a change to `index.html` reaches the iOS app only after a rebuild**. Both apps use HealthKit only
+for the golf workout: the iPhone app launches the watch app with one when a round starts
+(`HKHealthStore.startWatchApp`), and the watch app runs the workout session during the round. Nothing is saved
+to Health.
 
 ### Build and install on devices
 

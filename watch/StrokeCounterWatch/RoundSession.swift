@@ -1,4 +1,5 @@
 import CoreLocation
+import WatchKit
 
 // What runs for the length of a round: the golf workout session and GPS, and the late fix for a stroke logged
 // without a position. GPS runs while the workout runs, whatever is on screen and with the screen off; without a
@@ -15,6 +16,12 @@ final class RoundSession {
     private var roundId: String?
     private var finished = false
     private var appActive = true
+    // Set once the hole screen has been shown or the iPhone app has started this app for a round. From then on
+    // the workout follows the round: it starts for an unfinished round, also one that arrives later, and ends with it.
+    private var wantsWorkout = false
+    // The iPhone app launched this app: buzz once, so the player notices. Until this time the next workout that
+    // starts running is announced (the round's snapshot may still be on its way); nil once announced.
+    private var announceUntil: Date?
     // The last stroke logged without a position, waiting a few seconds for a fix to fill it in.
     private var awaitingFix: (strokeId: String, roundId: String, hole: Int, loggedAt: Date)?
     private static let backfillWindow: TimeInterval = 10   // like the phone's single-fix timeout
@@ -24,7 +31,11 @@ final class RoundSession {
             self?.lateFix(fix)
             self?.onFix?(fix)
         }
-        workout.onChange = { [weak self] in self?.updateLocation() }
+        workout.onChange = { [weak self] in
+            guard let self else { return }
+            if self.workout.isRunning, let until = self.announceUntil, Date() < until { self.announce() }
+            self.updateLocation()
+        }
     }
 
     // The latest fix if it is recent enough for a new stroke (LocationTracker.maxAge), else nil.
@@ -37,17 +48,41 @@ final class RoundSession {
     func roundChanged(id: String?, finished: Bool) {
         roundId = id
         self.finished = finished
-        if workout.roundId != nil && (id == nil || id != workout.roundId || finished) {
-            workout.end()
-        }
-        updateLocation()
+        syncWorkout()
     }
 
     // The hole screen is showing (app in the foreground): start the golf workout for this round if it is not
     // running yet. The first time, HealthKit asks for permission.
     func roundScreenShown() {
-        if let roundId, !finished, workout.roundId != roundId {
-            workout.end()   // a session left over from another round
+        wantsWorkout = true
+        syncWorkout()
+    }
+
+    // The iPhone app started a round and launched this app with a workout configuration (startWatchApp): start
+    // the workout now, or as soon as the round arrives.
+    func startedFromPhone() {
+        wantsWorkout = true
+        announceUntil = Date().addingTimeInterval(20)
+        // A workout already running (Continue while playing) is announced at once; otherwise when it starts.
+        if workout.isRunning { announce() }
+        syncWorkout()
+    }
+
+    // A double buzz with the notification haptic, the one made to be felt on the wrist; the second waits for the
+    // first to finish, since watchOS drops a haptic that starts while another plays. Played while a workout session
+    // runs, which also lets it play with the app in the background.
+    private func announce() {
+        announceUntil = nil
+        WKInterfaceDevice.current().play(.notification)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WKInterfaceDevice.current().play(.notification) }
+    }
+
+    // Ends a workout that belongs to no current, unfinished round, and starts one for the round when wanted.
+    private func syncWorkout() {
+        if workout.roundId != nil && (roundId == nil || workout.roundId != roundId || finished) {
+            workout.end()
+        }
+        if wantsWorkout, let roundId, !finished, workout.roundId != roundId {
             workout.start(roundId: roundId)
         }
         updateLocation()

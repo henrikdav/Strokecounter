@@ -31,7 +31,7 @@ final class SyncClient: NSObject, WCSessionDelegate {
 
     // Asks the phone for its current round instead of waiting for the application context, which can be slow
     // or missing (for example right after this app was installed). Wakes the phone app if needed.
-    private func requestSnapshot() {
+    func requestSnapshot() {
         guard let session, session.activationState == .activated, session.isReachable else { return }
         session.sendMessage(["type": "snapshot-request"], replyHandler: { [weak self] reply in
             guard let json = reply["snapshot"] as? String else { return }

@@ -1,14 +1,26 @@
+import HealthKit
 import SwiftUI
+import WatchKit
 
 @main
 struct StrokeCounterWatchApp: App {
-    @StateObject private var store = WatchStore()
+    @WKApplicationDelegateAdaptor private var delegate: AppDelegate
 
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environmentObject(store)
+                .environmentObject(delegate.store)
         }
+    }
+}
+
+// Owns the store, so it exists before watchOS hands over a workout from the iPhone, which can come before any view.
+final class AppDelegate: NSObject, WKApplicationDelegate {
+    let store = WatchStore()
+
+    // The iPhone app started a round and launched this app (HKHealthStore.startWatchApp in WatchBridge.swift).
+    func handle(_ workoutConfiguration: HKWorkoutConfiguration) {
+        store.startedFromPhone()
     }
 }
 

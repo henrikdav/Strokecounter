@@ -115,6 +115,13 @@ final class WatchStore: ObservableObject {
         session.setAppActive(active)
     }
 
+    // The iPhone app launched this app for a new round: start its workout (and GPS), and ask for the round in
+    // case its snapshot hasn't arrived yet.
+    func startedFromPhone() {
+        session.startedFromPhone()
+        sync.requestSnapshot()
+    }
+
     // MARK: Sync and storage
 
     // Applies a change to the round, then saves and sends the event it made, if any.

@@ -1985,6 +1985,7 @@ function createRound() {
   if (tee) round.tee = tee.name;
   db.rounds.push(round);
   openRound(round.id);
+  startWatchApp();
 }
 
 /* ---------- Course editor and import ---------- */
@@ -2304,6 +2305,12 @@ function sendWatchSnapshot() {
     };
   }
   watchBridge.postMessage({ type: 'snapshot', json: JSON.stringify(snapshot) });
+}
+
+// Asks the iOS app to start the watch app for the round (HKHealthStore.startWatchApp), so it doesn't have to be
+// opened by hand. Only when the player starts or continues a round, not when the app reopens one by itself.
+function startWatchApp() {
+  if (watchBridge) watchBridge.postMessage({ type: 'start-watch-app' });
 }
 
 function rememberRemoved(round, id) {
@@ -2726,7 +2733,10 @@ app.addEventListener('click', event => {
     case 'new-round': sheet = { type: 'new' }; render(); break;
     case 'hard-reload': hardReload(); break;
     case 'create-round': createRound(); break;
-    case 'open-round': openRound(el.dataset.id); break;
+    case 'open-round':
+      openRound(el.dataset.id);
+      if (!isFinished(getRound())) startWatchApp();
+      break;
     case 'open-past': openPastRound(el.dataset.id); break;
     case 'delete-round':
       if (confirm('Delete this round? This cannot be undone.')) {

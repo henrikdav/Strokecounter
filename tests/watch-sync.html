@@ -148,6 +148,21 @@ test(async () => {
   snap = await lastSnapshot();
   ok('a finished round is sent finished, every hole locked', snap.round.finished === true && snap.round.locked.length === 9);
 
+  // Starting the watch app from the phone
+  ok('reopening the active round at start does not start the watch app', !posted.some(m => m.type === 'start-watch-app'));
+  app.E("closeRound(); render();");
+  await app.click('[data-action=new-round]');
+  await app.click('[data-action=create-round]');
+  ok('starting a new round starts the watch app', posted.filter(m => m.type === 'start-watch-app').length === 1);
+  const newRound = app.E('getRound().id');
+  app.E('closeRound(); render();');
+  await app.click('.continue');
+  ok('Continue starts it too', posted.filter(m => m.type === 'start-watch-app').length === 2 && app.E('getRound().id') === newRound);
+  app.E('closeRound(); render();');
+  await app.click(`.past-card[data-id="r"]`);
+  ok('opening a finished round does not', posted.filter(m => m.type === 'start-watch-app').length === 2);
+  app.E("closeRound(); db.rounds = db.rounds.filter(r => r.id !== '" + newRound + "'); db.watchRoundId = 'other'; saveDb();");
+
   // Which round the watch shows
   app.E("openRound('other')");
   snap = await lastSnapshot();

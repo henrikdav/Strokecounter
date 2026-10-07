@@ -18,6 +18,11 @@ Inside the iOS app the web app and `WatchBridge` talk through the `watch` messag
 
 - web → native `{ type: 'hello' }` when the page loads: native hands over any events that arrived meanwhile.
 - web → native `{ type: 'snapshot', json }` at start and after every save.
+- web → native `{ type: 'start-watch-app' }` when the player starts a new round or taps Continue: native calls
+  `HKHealthStore.startWatchApp` with a golf workout configuration, which launches the watch app; its
+  `handle(_ workoutConfiguration:)` starts the round's workout (or does so as soon as the round's snapshot
+  arrives) and asks for the snapshot. Needs the watch on the wrist, unlocked and nearby; if it fails, the watch
+  app is opened by hand. Not sent when the app reopens the active round by itself or for a finished round.
 - native → web `applyWatchEvents(<array of events>)`, which answers `true` when the events were handled.
 
 ## Messages
@@ -143,8 +148,10 @@ the watch's clock.
   (no older than 30 s), worked out on the watch with the phone's formula (`meters`, haversine) and shown as the
   phone does (`fmtDist`: whole meters, "≈" when the two accuracies add up to more than 25 m). Nothing for a
   putt, a penalty stroke or a stroke without a position. Once the landing is set it shows that distance, fixed.
-- **Workout.** The golf workout session (and with it background GPS) runs while the round is shown and not
-  finished; it ends when the snapshot says `finished`, or the round is removed or replaced.
+- **Workout.** The golf workout session (and with it background GPS) starts once the hole screen has been shown
+  or the iPhone app launched the watch app for a round. From then on it follows the round: it runs while the
+  round is not finished, ends when the snapshot says `finished` or the round is removed, and when another
+  unfinished round arrives it ends the old session and starts one for the new round.
 
 ## What is stored where
 
