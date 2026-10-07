@@ -149,8 +149,8 @@ blocks the screen in automated runs.
   `applyWatchEvents()` in `index.html` merges them by stroke id. Applying an event twice changes nothing, removed
   strokes are remembered, and changes made after a hole was locked or the round was finished are refused.
 
-The code is the reference for now: `applyWatchEvents` and `sendWatchSnapshot` in `index.html`, `WatchBridge.swift`,
-and `WatchStore.swift` and `Models.swift` in the watch app.
+The full protocol (every message, field and rule, and how versions work) is in
+[docs/watch-sync.md](docs/watch-sync.md).
 
 ## Testing
 

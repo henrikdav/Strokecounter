@@ -31,6 +31,11 @@ struct RootView: View {
     var body: some View {
         content
             .onChange(of: scenePhase) { _, phase in store.setAppActive(phase != .background) }
+            .alert("Update the watch app", isPresented: Binding(get: { store.phoneIsNewer }, set: { store.phoneIsNewer = $0 })) {
+                Button("OK") {}
+            } message: {
+                Text("The iPhone app is newer. Install the latest Stroke Counter on the watch to keep syncing.")
+            }
     }
 
     @ViewBuilder private var content: some View {

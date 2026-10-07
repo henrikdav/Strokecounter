@@ -23,6 +23,15 @@ test(async () => {
   ok('snapshot: holes with par, strokes with ids, bag and club',
     snap.round.holes.length === 9 && snap.round.holes[0].par === 4 && snap.round.strokes['1'].length === 2 && snap.round.strokes['1'][0].id === 'p1' && Array.isArray(snap.bag) && !!snap.club);
 
+  // Protocol version
+  ok('the snapshot carries the protocol version', snap.v === 1);
+  ok('events from a newer watch app are not applied and stay queued (false)',
+    apply([ev({ v: 1, type: 'add', stroke: { id: 'n1', club: '9i', mods: [], t: 1500 } }), ev({ v: 2, type: 'add', stroke: { id: 'n2', club: '9i', mods: [], t: 1600 } })]) === false
+    && !hole(1).some(s => s.id === 'n1' || s.id === 'n2'));
+  ok('the user is told to update the iPhone app', /Update the iPhone app/.test(app.d.getElementById('toast').textContent));
+  ok('version 1 events are applied', apply([ev({ v: 1, type: 'add', stroke: { id: 'n1', club: '9i', mods: [], t: 1500 } })]) === true && hole(1).some(s => s.id === 'n1'));
+  apply([ev({ type: 'remove', id: 'n1', t: Date.now() })]);
+
   // Adding strokes
   ok('applyWatchEvents answers true', apply([ev({ type: 'add', stroke: { id: 'w1', club: 'Hybrid', mods: ['rough', 'bogus'], t: 2000 } })]) === true);
   ok('a watch stroke goes in by time, between the phone strokes', hole(1).map(s => s.id).join() === 'p1,w1,p2');

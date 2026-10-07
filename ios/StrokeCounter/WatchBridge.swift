@@ -2,7 +2,7 @@ import UIKit
 import WatchConnectivity
 import WebKit
 
-// Connects the web app's round to the Apple Watch app.
+// Connects the web app's round to the Apple Watch app. The protocol is described in docs/watch-sync.md.
 //
 // Phone → watch: the web app posts { type: "snapshot", json } when it starts and whenever it saves. The latest one
 // is saved here and goes to the watch as the application context (only the latest matters) and, when the watch

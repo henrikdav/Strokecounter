@@ -2253,9 +2253,13 @@ function countText(n, word) {
 
 // In the iOS app, the round opened last is mirrored to the Apple Watch: its holes, the bag and the strokes so far.
 // Strokes logged on the watch come back as events and are merged by stroke id (applyWatchEvents).
-// In a normal browser there is no bridge and none of this runs.
+// In a normal browser there is no bridge and none of this runs. The protocol is described in docs/watch-sync.md.
 const watchBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.watch;
+// Sync protocol version, in every snapshot and event. Raised only for a change an older app could misread;
+// new optional fields keep it (both sides ignore fields they don't know).
+const WATCH_PROTOCOL = 1;
 let watchTimer = null;
+let watchTooNewShown = false;
 
 function scheduleWatchSnapshot() {
   if (!watchBridge) return;
@@ -2265,7 +2269,7 @@ function scheduleWatchSnapshot() {
 
 function sendWatchSnapshot() {
   const round = db.rounds.find(r => r.id === db.watchRoundId) || null;
-  const snapshot = { round: null, bag: db.activeClubs, club: db.club };
+  const snapshot = { v: WATCH_PROTOCOL, round: null, bag: db.activeClubs, club: db.club };
   if (round) {
     const course = round.courseId ? db.courses.find(c => c.id === round.courseId) : null;
     const strokes = {};
@@ -2307,7 +2311,13 @@ function rememberRemoved(round, id) {
 // A stroke removed on either device stays removed, even if its 'add' arrives late.
 // The hole lock is enforced here, not only in the screens: a stroke added on the watch to a hole that was already
 // locked is refused and remembered as removed (so the watch drops it too), and a removal is ignored.
+// Events from a newer watch app (a higher `v`) are not applied: answering false keeps them queued in the iOS app
+// until this app is updated, so none are lost. Events without `v` come from before versioning and count as 1.
 function applyWatchEvents(events) {
+  if (events.some(e => (e.v || 1) > WATCH_PROTOCOL)) {
+    if (!watchTooNewShown) { watchTooNewShown = true; toast('The watch app is newer than this app. Update the iPhone app to sync.'); }
+    return false;
+  }
   let changed = false;
   events.forEach(e => {
     const round = db.rounds.find(r => r.id === e.roundId);

@@ -1,6 +1,12 @@
 import Foundation
 
 // The round as the phone last sent it (see sendWatchSnapshot in web/index.html). The phone owns it.
+// Sync protocol version (docs/watch-sync.md). Raised only for a change an older app could misread; new optional
+// fields keep it, since both sides ignore fields they don't know.
+enum WatchProtocol {
+    static let version = 1
+}
+
 struct Snapshot: Codable, Equatable {
     struct Hole: Codable, Equatable {
         let number: Int
@@ -30,6 +36,7 @@ struct Snapshot: Codable, Equatable {
         var finished: Bool? = nil          // finished on the phone's scorecard; missing from older phone versions
     }
 
+    var v: Int? = nil   // missing in snapshots from before versioning, which count as 1
     let round: Round?
     let bag: [String]
     let club: String
@@ -46,6 +53,7 @@ struct WatchEvent: Codable, Equatable {
         let acc: Double
     }
 
+    var v: Int? = WatchProtocol.version   // optional so an outbox saved before versioning still loads
     let type: Kind
     let roundId: String
     let hole: Int

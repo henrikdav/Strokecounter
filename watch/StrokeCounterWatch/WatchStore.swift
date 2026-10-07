@@ -6,11 +6,15 @@ import WatchConnectivity
 // What the screens show is the phone's round with the outbox applied on top, so a stroke appears at once even
 // when the phone is out of reach. Events go to the phone with transferUserInfo, which the system queues and
 // delivers even if the phone app is in the background; the phone can also ask for the outbox again ("flush").
+// The protocol is described in docs/watch-sync.md.
 final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
     @Published private(set) var snapshot: Snapshot?
     @Published private(set) var outbox: [WatchEvent] = []
     @Published var lastClub: String?
     @Published var armedMods: Set<Modifier> = []
+    // A snapshot came from a newer iPhone app than this watch app understands. It is ignored (the round already
+    // here keeps working, and events sent from here are still accepted) and the watch asks to be updated.
+    @Published var phoneIsNewer = false
 
     private let session: WCSession? = WCSession.isSupported() ? WCSession.default : nil
     private let defaults = UserDefaults.standard
@@ -208,6 +212,8 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
     // round the phone no longer shows (those were already queued for delivery when they were made).
     private func apply(snapshotJSON json: String) {
         guard let new = try? JSONDecoder().decode(Snapshot.self, from: Data(json.utf8)) else { return }
+        guard (new.v ?? 1) <= WatchProtocol.version else { phoneIsNewer = true; return }
+        phoneIsNewer = false
         snapshot = new
         defaults.set(Data(json.utf8), forKey: "snapshot")
         if let round = new.round {
