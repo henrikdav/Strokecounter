@@ -14,6 +14,7 @@ struct Snapshot: Codable, Equatable {
         let index: Int?
         var extra: Int? = nil              // handicap strokes on this hole, worked out on the phone; nil without handicap
         var position: HolePosition? = nil  // where the hole (cup) was marked, on either device
+        var teeClub: String? = nil         // the likely tee club from the phone's history; nil without history
     }
 
     struct HolePosition: Codable, Equatable {

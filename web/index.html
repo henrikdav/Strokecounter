@@ -2280,6 +2280,33 @@ function scheduleWatchSnapshot() {
   watchTimer = setTimeout(sendWatchSnapshot, 300);
 }
 
+// The likely tee club per hole, which the watch preselects for a hole's first stroke (#6): the club most often
+// played first on the same hole of the same course in other rounds, else on holes with the same par in any round,
+// this one included. Only clubs in the bag count, never Putter or Penalty; a tie goes to the club used last.
+// Holes without such history are left out, and the watch falls back to its own rules.
+function teeClubs(round) {
+  const sameHole = {}, samePar = {};
+  const count = (tally, key, s) => {
+    const c = (tally[key] || (tally[key] = {}))[s.club] || (tally[key][s.club] = { n: 0, t: 0 });
+    c.n++; c.t = Math.max(c.t, s.t || 0);
+  };
+  db.rounds.forEach(r => holeNumbers(r).forEach(h => {
+    const first = (r.holes[h] || [])[0];
+    if (!first || first.club === 'Putter' || first.club === PENALTY || !db.activeClubs.includes(first.club)) return;
+    if (r !== round && round.courseId && r.courseId === round.courseId) count(sameHole, h, first);
+    const info = holeInfo(r, h);
+    if (info && info.par) count(samePar, info.par, first);
+  }));
+  const best = tally => tally && Object.entries(tally).sort(([, a], [, b]) => (b.n - a.n) || (b.t - a.t))[0][0];
+  const clubs = {};
+  holeNumbers(round).forEach(h => {
+    const info = holeInfo(round, h);
+    const club = best(sameHole[h]) || (info && info.par ? best(samePar[info.par]) : null);
+    if (club) clubs[h] = club;
+  });
+  return clubs;
+}
+
 function sendWatchSnapshot() {
   const round = db.rounds.find(r => r.id === db.watchRoundId) || null;
   const snapshot = { v: WATCH_PROTOCOL, round: null, bag: db.activeClubs, club: db.club };
@@ -2288,6 +2315,7 @@ function sendWatchSnapshot() {
     const hasExtras = strokesReceived(round, round.startHole || 1) !== null;
     const point = p => ({ lat: p.lat, lng: p.lng, acc: p.acc || 0 });
     const strokes = {};
+    const tee = teeClubs(round);
     holeNumbers(round).forEach(h => {
       strokes[h] = (round.holes[h] || []).map(s => ({
         id: s.id, club: s.club, mods: MODS.filter(m => s[m.key]).map(m => m.key), t: s.t,
@@ -2305,7 +2333,8 @@ function sendWatchSnapshot() {
           number: h, par: info ? info.par : null, index: info && Number.isInteger(info.index) ? info.index : null,
           // Worked out here so the watch never repeats the handicap rules; null without handicap and index.
           extra: hasExtras ? strokesReceived(round, h) : null,
-          position: pin ? { ...point(pin), t: pin.t || 0 } : null
+          position: pin ? { ...point(pin), t: pin.t || 0 } : null,
+          teeClub: tee[h] || null
         };
       }),
       currentHole: round.currentHole,

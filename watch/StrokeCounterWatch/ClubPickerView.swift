@@ -4,16 +4,17 @@ import SwiftUI
 // nothing is logged here (like the Modifiers screen).
 struct ClubPickerView: View {
     @EnvironmentObject private var store: WatchStore
+    let hole: Int
     @Binding var path: [Route]
 
     var body: some View {
-        let current = store.club
+        let current = store.club(on: hole)
         ScrollViewReader { proxy in
             List {
                 Section {
                     ForEach(store.bag, id: \.self) { club in
                         Button {
-                            store.selectClub(club)
+                            store.selectClub(club, hole: hole)
                             path = []
                         } label: {
                             HStack {

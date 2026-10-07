@@ -55,7 +55,7 @@ idempotent.
     "holes": [
       { "number": 1, "par": 4, "index": 7, "extra": 1,
         "position": { "lat": 59.331, "lng": 18.07, "acc": 4, "t": 1759500600000 } },
-      { "number": 2, "par": 3, "index": null, "extra": null, "position": null }
+      { "number": 2, "par": 3, "index": null, "extra": null, "position": null, "teeClub": "7i" }
     ],
     "currentHole": 2,
     "locked": [1],
@@ -78,13 +78,18 @@ idempotent.
 - `extra` is the hole's handicap strokes, worked out on the phone (`strokesReceived`) so the watch never repeats
   the handicap rules; `null` without a playing handicap and a hole index on every hole.
 - `position` is where the hole (cup) was marked, on either device, with the time it was marked; `null` if not.
+- `teeClub` is the likely club for the hole's first stroke, from the phone's history (`teeClubs`): the club most
+  often played first on the same hole of the same course in other rounds, else on holes with the same par; only
+  clubs in the bag, never Putter or Penalty; `null` without history. The watch preselects it (#6).
 - `strokes` is keyed by real hole number. `mods` holds `chip`, `pitch`, `bunker`, `rough` in that order.
   `lat`/`lng`/`acc` appear only when the stroke has a position, `landing` only when the shot's distance was locked
   (Stop on the phone, a tap on the distance on the watch).
 - `locked` lists holes finished with Done. For a finished round it lists every hole, so an older watch app also
   treats the whole round as read-only.
 - `removed` lists every stroke id removed on either device (tombstones). They never come back.
-- `bag` is the phone's bag; `club` the club selected on the phone, used until a club is picked on the watch.
+- `bag` is the phone's bag; `club` the club selected on the phone, used on the watch only when the bag is empty.
+  The watch preselects its own club per hole: a club picked on the watch for the hole until a stroke is logged
+  after it, else the last club played on the hole, else `teeClub`, else Driver (7i on a par 3).
 
 ## Events (watch → phone)
 
@@ -174,7 +179,7 @@ the watch's clock.
 | Version | Change |
 | --- | --- |
 | 1 | First versioned protocol |
-| 2 | Events `landing` and `mark`; snapshot fields `extra` and `position` on holes, `landing` on strokes |
+| 2 | Events `landing` and `mark`; snapshot fields `extra` and `position` on holes, `landing` on strokes; later `teeClub` on holes (optional, so no new version) |
 
 The watch app is updated separately from the iPhone app (and sometimes later), so either side may be the newer one.
 

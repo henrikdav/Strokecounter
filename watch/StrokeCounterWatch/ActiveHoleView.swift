@@ -14,7 +14,8 @@ struct ActiveHoleView: View {
 
     var body: some View {
         let strokes = store.strokes(on: hole)
-        let next = strokeSummary(club: store.club, mods: Array(store.armedMods))
+        let club = store.club(on: hole)
+        let next = strokeSummary(club: club, mods: Array(store.armedMods))
         let locked = store.isLocked(hole)
         let finished = store.isRoundFinished
         VStack(spacing: 5) {
@@ -38,7 +39,7 @@ struct ActiveHoleView: View {
                 }
 
                 Button {
-                    if let stroke = store.logStroke(club: store.club, hole: hole) {
+                    if let stroke = store.logStroke(club: club, hole: hole) {
                         WKInterfaceDevice.current().play(.click)
                         path = [.logged(stroke, number: strokes.count + 1, hole: hole)]
                     }

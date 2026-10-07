@@ -57,7 +57,7 @@ struct RootView: View {
                     .navigationDestination(for: Route.self) { route in
                         switch route {
                         case .clubs:
-                            ClubPickerView(path: $path)
+                            ClubPickerView(hole: hole, path: $path)
                         case .modifiers:
                             ModifiersView(path: $path)
                         case let .logged(stroke, number, hole):

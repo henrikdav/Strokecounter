@@ -176,6 +176,7 @@ python3 and Chrome (set `CHROME=/path/to/chrome` if it isn't found).
 | `home` | Stats, Continue card, Past rounds and net badges, swipe to delete, settings |
 | `navigation` | Where Back goes from the scorecard and hole views |
 | `watch-sync` | Snapshots to the watch and `applyWatchEvents`: merging, removals, positions, locks, finished rounds |
+| `suggest-club` | `teeClubs`: the likely tee club per hole sent to the watch (same hole on the course, else same par) |
 | `gps` | The GPS watch: restarts after a denied error and on return to the app, the status pill |
 | `gps-shim` | `ios/StrokeCounter/gps-shim.js` with a fake native bridge |
 | `course-map` | The Map button and what it sends to the native map |
