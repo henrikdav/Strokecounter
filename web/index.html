@@ -2139,7 +2139,7 @@ function updateDraftTotals() {
 /* ---------- Scorecard scan (iOS app) ---------- */
 
 // On a new course, the iOS app can photograph a printed scorecard and read it on the phone (ScorecardBridge.swift:
-// the document camera, then Vision text recognition; nothing is sent anywhere and it works offline). It returns
+// one photo, then Vision text recognition; nothing is sent anywhere and it works offline). It returns
 // the words it read with their positions; parseScorecard() finds the table in them, and what it finds is filled
 // into the course being edited, with every field it could not read marked, for the player to check before Save.
 const scorecardBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.scorecard;

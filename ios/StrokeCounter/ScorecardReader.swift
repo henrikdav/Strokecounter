@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreImage
 import ImageIO
 import Vision
 
@@ -9,13 +10,37 @@ import Vision
 enum ScorecardReader {
     // A page as the web app wants it: { width, height, words: [{ text, x, y, w, h }] }, with the word's center and
     // size in pixels and y growing downwards, like on screen.
-    static func read(_ image: CGImage, orientation: CGImagePropertyOrientation) -> [String: Any] {
-        // A wide card is often photographed sideways. A quick pass in each direction finds which way it reads
-        // (the most numbers), then the careful pass reads it that way.
-        let turns = [orientation, orientation.turnedRight, orientation.turnedLeft, orientation.turnedRight.turnedRight]
-        let scores = turns.map { digitWords(page(image, orientation: $0, level: .fast)) }
-        let upright = zip(turns, scores).max { $0.1 < $1.1 }?.0 ?? orientation
-        return page(image, orientation: upright, level: .accurate)
+    static func read(_ photo: CGImage, orientation: CGImagePropertyOrientation) -> [String: Any] {
+        // The photo as taken, and the card cut out and straightened when its outline is found; each turned four
+        // ways, since a wide card is often photographed sideways. A quick pass on each finds the one that reads
+        // best (the most numbers), then the careful pass reads that one.
+        let turns = { (o: CGImagePropertyOrientation) in [o, o.turnedRight, o.turnedLeft, o.turnedRight.turnedRight] }
+        var candidates = turns(orientation).map { (photo, $0) }
+        if let card = straightened(photo, orientation: orientation) { candidates += turns(.up).map { (card, $0) } }
+        let scores = candidates.map { digitWords(page($0.0, orientation: $0.1, level: .fast)) }
+        let best = zip(candidates, scores).max { $0.1 < $1.1 }?.0 ?? (photo, orientation)
+        return page(best.0, orientation: best.1, level: .accurate)
+    }
+
+    // The card cut out of the photo and straightened, when Vision finds its outline (a photo taken at an angle
+    // otherwise gives uneven columns). Nil when no outline is found; the photo is then read as it is.
+    private static func straightened(_ photo: CGImage, orientation: CGImagePropertyOrientation) -> CGImage? {
+        let upright = CIImage(cgImage: photo).oriented(orientation)
+        let request = VNDetectRectanglesRequest()
+        request.minimumSize = 0.3
+        request.minimumConfidence = 0.6
+        request.quadratureTolerance = 30
+        request.minimumAspectRatio = 0.15
+        request.maximumObservations = 1
+        try? VNImageRequestHandler(ciImage: upright).perform([request])
+        guard let card = request.results?.first else { return nil }
+        let size = upright.extent.size
+        let point = { (p: CGPoint) in CIVector(cgPoint: CGPoint(x: p.x * size.width, y: p.y * size.height)) }
+        let corrected = upright.applyingFilter("CIPerspectiveCorrection", parameters: [
+            "inputTopLeft": point(card.topLeft), "inputTopRight": point(card.topRight),
+            "inputBottomLeft": point(card.bottomLeft), "inputBottomRight": point(card.bottomRight)
+        ])
+        return CIContext().createCGImage(corrected, from: corrected.extent)
     }
 
     private static func page(_ image: CGImage, orientation: CGImagePropertyOrientation,
