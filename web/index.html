@@ -2198,8 +2198,9 @@ function applyScorecard(card) {
 }
 
 // Finds hole numbers, par, index and lengths per tee in the words read from one or more pages (front and back of
-// a card). Works on printed tables with a row of hole numbers (1–9 and 10–18, in one row or two blocks) and labelled
-// rows below or above it; the table may also run downwards (hole numbers in a column). Returns null when no row of
+// a card). Works on printed tables with a row of hole numbers (1–9 and 10–18, in one row or two blocks, or a loop
+// such as 19–27) and labelled rows below or above it; the table may also run downwards (hole numbers in a column,
+// tees as columns). Returns null when no row of
 // hole numbers is found, else { count, holes: [{ par, index }] × 18, tees: [{ name, lengths: [18] }] } with null for
 // everything not read. Pure, so it is tested on recorded Vision output (tests/scorecard.html).
 function parseScorecard(pages) {
@@ -2257,9 +2258,10 @@ function scorecardGrid(words, straightened = false) {
   // line (x = a + step × hole), since a total column often sits between 9 and 10; missing numbers are filled in.
   const holeRows = [];
   rows.forEach(r => {
-    const nums = r.words.map(w => ({ v: scanNumber(w.text), x: w.x })).filter(n => n.v !== null && n.v >= 1 && n.v <= 18);
-    const nines = [[1, 9], [10, 18]].map(([lo, hi]) => fitHoleLine(nums.filter(n => n.v >= lo && n.v <= hi), lineH, lo, hi)).filter(Boolean);
-    if (nines.length) holeRows.push({ y: r.y, row: r, nines });
+    const nums = r.words.map(w => ({ v: scanNumber(w.text), x: w.x })).filter(n => n.v !== null && n.v >= 1 && n.v <= 36);
+    const nines = [[1, 9], [10, 18], [19, 27], [28, 36]].map(([lo, hi]) => fitHoleLine(nums.filter(n => n.v >= lo && n.v <= hi), lineH, lo, hi)).filter(Boolean);
+    // Seven numbers at least, so a stray run of digits (a keyboard in the photo) is not taken for holes.
+    if (nines.reduce((n, nine) => n + nine.count, 0) >= 7) holeRows.push({ y: r.y, row: r, nines });
   });
   if (!holeRows.length) return null;
 
@@ -2306,7 +2308,10 @@ function scorecardGrid(words, straightened = false) {
     Object.keys(cells).forEach(h => { if (!SCAN_RANGE[kind](cells[h])) delete cells[h]; });
     if (kind === 'length') {
       const key = scanLabelKey(label) || `#${tees.length}`;
-      tees.push({ name: label.slice(0, 24) || `Tee ${tees.length + 1}`, key, lengths: cells, sums });
+      // Tees named by a number (61, 57) often sit under a heading such as "Längd i meter"; the number is the name.
+      const last = label.split(/\s+/).pop();
+      const name = /^\d{1,3}$/.test(last) ? last : label.slice(0, 24);
+      tees.push({ name: name || `Tee ${tees.length + 1}`, key: scanLabelKey(name) || key, lengths: cells, sums });
     } else {
       Object.entries(cells).forEach(([h, v]) => {
         const hole = holes[h] || (holes[h] = { par: null, index: null });
@@ -2315,7 +2320,7 @@ function scorecardGrid(words, straightened = false) {
       if (!totals.some(t => t.kind === kind)) totals.push({ kind, sums });
     }
   });
-  return { holes, tees, totals, maxHole: Math.max(...holeRows.flatMap(hr => hr.nines.map(n => n.hi))) };
+  return { holes, tees, totals };
 }
 
 // The best line through numbers lo–hi in one row: at least 4 numbers (3 for a short row) on one evenly spaced line.
@@ -2337,7 +2342,7 @@ function fitHoleLine(nums, lineH, lo, hi) {
   const f = best.fits, m = f.length;
   const mv = f.reduce((s, n) => s + n.v, 0) / m, mx = f.reduce((s, n) => s + n.x, 0) / m;
   const step = f.reduce((s, n) => s + (n.v - mv) * (n.x - mx), 0) / f.reduce((s, n) => s + (n.v - mv) ** 2, 0);
-  return { a: mx - step * mv, step, lo, hi };
+  return { a: mx - step * mv, step, lo, hi, count: m };
 }
 
 function scanLabelKey(label) {
@@ -2376,13 +2381,30 @@ function mergeScorecards(a, b) {
     const same = a.totals.find(x => x.kind === t.kind);
     if (same) Object.assign(same.sums, t.sums); else a.totals.push(t);
   });
-  a.maxHole = Math.max(a.maxHole, b.maxHole);
   return a;
 }
 
-// Turns raw findings into the result. One missing value in a nine is worked out from the nine's total (Ut, In)
-// when that was read, and one missing index on 18 holes from the indexes left over.
-function finishScorecard(raw) {
+// Turns raw findings into the result. Holes are numbered as printed until here; a card for a loop of a bigger
+// course (holes 19–27, say) becomes holes 1–9, the first two nines with anything read become 1–18. One missing
+// value in a nine is worked out from the nine's total (Ut, In) when that was read, and one missing index on 18
+// holes from the indexes left over.
+function finishScorecard(found) {
+  const nineOf = h => Math.ceil(h / 9);
+  const read = new Set([...Object.keys(found.holes), ...found.tees.flatMap(t => Object.keys(t.lengths))].map(h => nineOf(Number(h))));
+  const nines = [...read].sort((a, b) => a - b).slice(0, 2);
+  if (!nines.length) return null;
+  const toCourse = h => (nines.indexOf(nineOf(h)) >= 0 ? nines.indexOf(nineOf(h)) * 9 + ((h - 1) % 9) + 1 : null);
+  const remap = obj => {
+    const out = {};
+    Object.entries(obj).forEach(([h, v]) => { const c = toCourse(Number(h)); if (c) out[c] = v; });
+    return out;
+  };
+  const raw = {
+    holes: remap(found.holes),
+    tees: found.tees.map(t => ({ ...t, lengths: remap(t.lengths), sums: remap(t.sums) })),
+    totals: found.totals.map(t => ({ ...t, sums: remap(t.sums) }))
+  };
+
   // A tee's rows in separate blocks (front and back nine) are joined: by name, or for unnamed tees in order.
   const tees = [];
   raw.tees.forEach(t => {
@@ -2396,7 +2418,7 @@ function finishScorecard(raw) {
       join.joined = true;
     } else tees.push({ ...t, lengths: { ...t.lengths }, sums: { ...t.sums } });
   });
-  const count = raw.maxHole > 9 || Object.keys(raw.holes).some(h => h > 9) ? 18 : 9;
+  const count = nines.length * 9;
   const holes = Array.from({ length: 18 }, (_, i) => {
     const h = raw.holes[i + 1];
     return { par: h && PARS.includes(h.par) ? h.par : null, index: h && h.index >= 1 && h.index <= 18 ? h.index : null };

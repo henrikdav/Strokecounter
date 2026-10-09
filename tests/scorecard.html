@@ -48,6 +48,17 @@ test(async () => {
   const tilted = card.tees.map(t => tally(t.lengths, lengths(off[t.name])));
   ok('tilted: par all right, four tees, no wrong length', par.right === 18 && card.tees.length === 4 && tilted.every(t => t.wrong === 0 && t.right === 18), JSON.stringify([par, tilted]));
 
+  // A 9-hole loop printed as holes 19–27 down a column, tees as columns named 61…43 under "Längd i meter",
+  // Par and Hcp columns, Ut at the bottom, and digits above the card (as a keyboard in a real photo).
+  card = parse([await fixture('scorecard-loop')]);
+  ok('loop: 9 holes, 19–27 become 1–9', card && card.count === 9);
+  ok('loop: par and index all right',
+    card.holes.slice(0, 9).map(h => h.par).join() === '4,4,3,4,4,5,5,3,4' && card.holes.slice(0, 9).map(h => h.index).join() === '5,13,3,15,17,11,1,9,7',
+    JSON.stringify(card.holes.slice(0, 9)));
+  ok('loop: tees named by their numbers, with all lengths',
+    card.tees.map(t => t.name).join() === '61,57,53,48,43' && card.tees[0].lengths.slice(0, 9).join() === '380,310,190,340,320,530,570,160,380' && card.tees[4].lengths[8] === 260,
+    JSON.stringify(card.tees.map(t => t.name + ':' + t.lengths.slice(0, 9).join(' '))));
+
   // The same card read downwards (hole numbers in a column) and both cards as two pages.
   const turned = { width: wide.height, height: wide.width, words: wide.words.map(w => ({ text: w.text, x: w.y, y: w.x, w: w.h, h: w.w })) };
   card = parse([turned]);
