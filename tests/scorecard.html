@@ -59,6 +59,17 @@ test(async () => {
     card.tees.map(t => t.name).join() === '61,57,53,48,43' && card.tees[0].lengths.slice(0, 9).join() === '380,310,190,340,320,530,570,160,380' && card.tees[4].lengths[8] === 260,
     JSON.stringify(card.tees.map(t => t.name + ':' + t.lengths.slice(0, 9).join(' '))));
 
+  // The whole card: the loop 19–27 on the left and 1–9 on the right, played 19–27 then 1–9, so 19 becomes hole 1
+  // and 1 becomes hole 10. The tees are joined across both tables.
+  card = parse([await fixture('scorecard-loop18')]);
+  ok('19–9: 18 holes, in the order the card shows them',
+    card && card.count === 18 && card.holes.map(h => h.par).join() === '4,4,3,4,4,5,5,3,4,4,5,4,3,4,3,4,4,4',
+    card && JSON.stringify(card.holes.map(h => h.par)));
+  ok('19–9: index all right', card.holes.map(h => h.index).join() === '5,13,3,15,17,11,1,9,7,2,18,8,4,10,12,6,16,14');
+  ok('19–9: five tees over all 18 holes',
+    card.tees.map(t => t.name).join() === '61,57,53,48,43' && card.tees[0].lengths.join() === '380,310,190,340,320,530,570,160,380,355,445,380,180,325,165,340,340,355' && card.tees[4].lengths[12] === 75,
+    JSON.stringify(card.tees.map(t => t.name + ':' + t.lengths.join(' '))));
+
   // The same card read downwards (hole numbers in a column) and both cards as two pages.
   const turned = { width: wide.height, height: wide.width, words: wide.words.map(w => ({ text: w.text, x: w.y, y: w.x, w: w.h, h: w.w })) };
   card = parse([turned]);
