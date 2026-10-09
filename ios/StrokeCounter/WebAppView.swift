@@ -15,11 +15,14 @@ struct WebAppView: UIViewRepresentable {
         }
         let map = context.coordinator.map
         configuration.userContentController.add(map, name: CourseMapBridge.handlerName)
+        let scorecard = context.coordinator.scorecard
+        configuration.userContentController.add(scorecard, name: ScorecardBridge.handlerName)
         let watch = WatchBridge.shared
         configuration.userContentController.add(watch, name: WatchBridge.handlerName)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         gps.webView = webView
         map.webView = webView
+        scorecard.webView = webView
         watch.webView = webView
         webView.uiDelegate = context.coordinator
         if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web") {
@@ -35,6 +38,7 @@ struct WebAppView: UIViewRepresentable {
     final class Coordinator: NSObject, WKUIDelegate {
         let gps = GPSBridge()
         let map = CourseMapBridge()
+        let scorecard = ScorecardBridge()
 
         func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
                      initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {

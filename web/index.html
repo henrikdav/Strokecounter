@@ -303,6 +303,10 @@
                     font-size: 15px; text-align: right; background: var(--paper); color: var(--ink); }
   .tee-over-hint { margin-top: 4px; }
   .delete-link { margin-top: 18px; }
+  .scan-btn { width: 100%; margin: 4px 0 6px; }
+  .scan-note { margin: 4px 0 10px; }
+  /* A field a scorecard scan could not read, until it is filled in. */
+  .len.unread, .idx.unread, .pars.unread { outline: 2px dashed var(--flag); outline-offset: 2px; }
   .idx { padding: 0 6px; }
   .row2 { display: flex; gap: 10px; margin-top: 12px; }
   .row2 .field { flex: 1; min-width: 0; }
@@ -1116,18 +1120,20 @@ function renderCourses() {
 function renderCourseEdit() {
   const tee = draft.tees[draft.teeIdx];
   const blank = v => (v === null || v === undefined ? '' : v);
+  // Fields a scorecard scan could not read are marked until they are filled in.
+  const unread = (set, i) => (set && set.has(i) ? ' unread' : '');
   const rows = draft.all.slice(0, draft.count).map((h, i) => {
     const t = tee.holes[i];
     return `
     <div class="hole-block">
       <div class="hole-row">
         <span class="hn">${i + 1}</span>
-        <div class="pars" role="group" aria-label="Par for hole ${i + 1}">
+        <div class="pars${unread(draft.unread && draft.unread.par, i)}" role="group" aria-label="Par for hole ${i + 1}">
           ${PARS.map(p => `<button class="par-btn${h.par === p ? ' on' : ''}" data-action="set-par" data-i="${i}" data-par="${p}">${p}</button>`).join('')}
         </div>
-        <input class="len" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="m" data-i="${i}"
+        <input class="len${unread(tee.unread, i)}" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="m" data-i="${i}"
                value="${blank(t.length)}" autocomplete="off" aria-label="Length of hole ${i + 1} from ${esc(tee.name)} in meters">
-        <input class="idx" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="1–18" data-i="${i}"
+        <input class="idx${unread(draft.unread && draft.unread.index, i)}" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="1–18" data-i="${i}"
                value="${blank(h.index)}" autocomplete="off" aria-label="Index of hole ${i + 1}">
       </div>
       ${tee.overrides ? `
@@ -1152,6 +1158,8 @@ function renderCourseEdit() {
         <span class="side" style="min-width:64px"></span>
       </header>
       <main class="scroll">
+        ${scorecardBridge && !draft.id ? `<button class="modbtn scan-btn" data-action="scan-scorecard">Scan scorecard</button>` : ''}
+        ${draft.scanning ? '<p class="hint scan-note">Reading the scorecard…</p>' : (draft.scanNote ? `<p class="hint scan-note">${esc(draft.scanNote)}</p>` : '')}
         <label class="field"><span>Name</span>
           <input id="course-name" type="text" maxlength="60" autocomplete="off" value="${esc(draft.name)}">
         </label>
@@ -2128,6 +2136,392 @@ function updateDraftTotals() {
   if (el && draft) el.textContent = draftTotalsText();
 }
 
+/* ---------- Scorecard scan (iOS app) ---------- */
+
+// On a new course, the iOS app can photograph a printed scorecard and read it on the phone (ScorecardBridge.swift:
+// one photo, then Vision text recognition; nothing is sent anywhere and it works offline). It returns
+// the words it read with their positions; parseScorecard() finds the table in them, and what it finds is filled
+// into the course being edited, with every field it could not read marked, for the player to check before Save.
+const scorecardBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.scorecard;
+
+function scanScorecard() {
+  if (!scorecardBridge || !draft || draft.id) return;   // a second tap while the camera opens is ignored there
+  keepDraftNames();
+  scorecardBridge.postMessage({ type: 'scan' });
+}
+
+// Called by the iOS app: { status: 'reading' } once the photo is taken, then { status: 'ok', pages: [{ width,
+// height, words: [{ text, x, y, w, h }] }] }; or status 'cancelled', 'denied' (no camera access), 'unsupported'
+// or 'failed'. Anything but a readable card leaves the course as it was.
+function scorecardScanned(result) {
+  const editing = view === 'course-edit' && draft && !draft.id;
+  // Reading takes a few seconds; the note stays up until the result replaces it.
+  if (result && result.status === 'reading') {
+    if (editing) { keepDraftNames(); draft.scanning = true; render(); }
+    return;
+  }
+  if (editing && draft.scanning) { keepDraftNames(); draft.scanning = false; render(); }
+  if (!result || result.status === 'cancelled') return;
+  if (result.status === 'denied') { toast('Allow camera access in Settings to scan a scorecard', 'bad'); return; }
+  if (result.status !== 'ok') { toast('Could not scan the scorecard', 'bad'); return; }
+  if (view !== 'course-edit' || !draft || draft.id) return;
+  let card = null;
+  try { card = parseScorecard(result.pages || []); } catch (e) { card = null; }
+  if (!card) { toast('Could not find holes on the scorecard. Try again, flat and in good light.', 'bad'); return; }
+  keepDraftNames();
+  applyScorecard(card);
+  render();
+}
+
+// Fills the draft with what was read. Only fields that were read are changed; the rest are marked as unread.
+// Tees are matched by name; a scanned tee replaces the starting tee while it is still empty.
+function applyScorecard(card) {
+  const n = card.count;
+  draft.count = n;
+  draft.unread = { par: new Set(), index: new Set() };
+  for (let i = 0; i < n; i++) {
+    const h = card.holes[i];
+    if (h.par !== null) draft.all[i].par = h.par; else draft.unread.par.add(i);
+    if (h.index !== null) draft.all[i].index = h.index; else draft.unread.index.add(i);
+  }
+  card.tees.forEach(scanned => {
+    let tee = draft.tees.find(t => t.name.toLowerCase() === scanned.name.toLowerCase());
+    if (!tee) {
+      const empty = draft.tees.find(t => !t.scanned && t.holes.every(h => h.length === null && h.par === null && h.index === null));
+      if (empty) { tee = empty; tee.name = scanned.name; } else { tee = emptyTee(scanned.name); draft.tees.push(tee); }
+    }
+    tee.scanned = true;
+    tee.unread = new Set();
+    for (let i = 0; i < n; i++) {
+      if (scanned.lengths[i] !== null) tee.holes[i].length = scanned.lengths[i]; else tee.unread.add(i);
+    }
+  });
+  draft.teeIdx = card.tees.length ? draft.tees.findIndex(t => t.scanned) : draft.teeIdx;
+  const read = (arr, key) => arr.slice(0, n).filter(h => h[key] !== null).length;
+  draft.scanNote = `Read from the scorecard: ${n} holes, par on ${read(card.holes, 'par')}, index on ${read(card.holes, 'index')}` +
+    (card.tees.length ? `, lengths for ${card.tees.map(t => `${t.name} (${t.lengths.slice(0, n).filter(v => v !== null).length})`).join(', ')}` : ', no lengths') +
+    '. Fields it could not read are marked. Check everything before you save.';
+}
+
+// Finds hole numbers, par, index and lengths per tee in the words read from one or more pages (front and back of
+// a card). Works on printed tables with a row of hole numbers (1–9 and 10–18, in one row or two blocks, or a loop
+// such as 19–27) and labelled rows below or above it; the table may also run downwards (hole numbers in a column,
+// tees as columns). Returns null when no row of
+// hole numbers is found, else { count, holes: [{ par, index }] × 18, tees: [{ name, lengths: [18] }] } with null for
+// everything not read. Pure, so it is tested on recorded Vision output (tests/scorecard.html).
+function parseScorecard(pages) {
+  let best = null;
+  pages.forEach(page => {
+    const words = (page.words || []).filter(w => w && typeof w.text === 'string' && [w.x, w.y, w.w, w.h].every(Number.isFinite))
+      .flatMap(splitScanWord);
+    // The table read across, or (hole numbers in a column) down: whichever finds more.
+    const found = [words, words.map(w => ({ text: w.text, x: w.y, y: w.x, w: w.h, h: w.w }))].map(scorecardGrid)
+      .filter(Boolean).sort((a, b) => scanCells(b) - scanCells(a))[0];
+    if (found) best = best ? mergeScorecards(best, found) : found;
+  });
+  return best && finishScorecard(best);
+}
+
+// Two cells read as one word across a table line ("530|495") become two words, each placed by its share of the
+// characters.
+function splitScanWord(w) {
+  const parts = w.text.split(/[|/]+/);
+  if (parts.length < 2 || parts.filter(Boolean).length < 2) return [w];
+  const per = w.w / w.text.length;
+  let at = w.x - w.w / 2;
+  return w.text.split(/([|/]+)/).map(part => {
+    const piece = { ...w, text: part, x: at + (part.length * per) / 2, w: part.length * per };
+    at += part.length * per;
+    return piece;
+  }).filter(p => p.text && !/^[|/]+$/.test(p.text));
+}
+
+// The number in a word, allowing for table lines read as | and what text recognition often mixes up in digits
+// (O for 0, l and I for 1).
+function scanNumber(text) {
+  const t = text.replace(/[|/.,:;*•·'"()\[\]]/g, '');
+  if (!/^[\dOoIl]{1,4}$/.test(t) || !/\d/.test(t)) return null;
+  return parseInt(t.replace(/[Oo]/g, '0').replace(/[Il]/g, '1'), 10);
+}
+
+function scanCells(raw) {
+  return Object.values(raw.holes).reduce((n, h) => n + (h.par !== null) + (h.index !== null), 0) +
+    raw.tees.reduce((n, t) => n + Object.keys(t.lengths).length, 0);
+}
+
+function median(values) {
+  const v = [...values].sort((a, b) => a - b);
+  return v.length ? v[Math.floor(v.length / 2)] : 0;
+}
+
+// Raw findings for one page in one direction: { holes: { [n]: { par, index } }, tees: [{ name, key, lengths, sums }],
+// totals, order }, with holes numbered as printed and `order` the printed nines (1 for 1–9, 3 for 19–27) in the
+// order they appear on the card. Null when no row of hole numbers is found.
+function scorecardGrid(words) {
+  if (words.length < 5) return null;
+  const lineH = median(words.map(w => w.h)) || 1;
+
+  // Hole-number rows: numbers 1–9, 10–18, 19–27 or 28–36 that sit on evenly spaced columns, in order. Each nine
+  // gets its own line (x = a + step × hole), since a total column often sits between 9 and 10; missing numbers are
+  // filled in. Seven numbers at least, so a stray run of digits (a keyboard in the photo) is not taken for holes,
+  // or four after a word for hole (Hål, Hole), as on a short course.
+  const holeRows = [];
+  scanRows(words, lineH).forEach(r => {
+    const nums = r.words.map(w => ({ v: scanNumber(w.text), x: w.x, y: w.y })).filter(n => n.v !== null && n.v >= 1 && n.v <= 36);
+    const nines = [[1, 9], [10, 18], [19, 27], [28, 36]].map(([lo, hi]) => fitHoleLine(nums.filter(n => n.v >= lo && n.v <= hi), lineH, lo, hi)).filter(Boolean);
+    const titled = r.words.some(w => /^(hal|hai|hol|hole|holes)$/.test(scanLabelKey(w.text)) && w.x < Math.min(...nums.map(n => n.x)));
+    if (nines.reduce((n, nine) => n + nine.count, 0) < (titled ? 4 : 7)) return;
+    // The row's own slant: a card photographed at an angle slants each table its own way.
+    const on = nums.filter(n => nines.some(nine => n.v >= nine.lo && n.v <= nine.hi));
+    const mx = on.reduce((s, n) => s + n.x, 0) / on.length, my = on.reduce((s, n) => s + n.y, 0) / on.length;
+    const den = on.reduce((s, n) => s + (n.x - mx) ** 2, 0);
+    const slope = den ? on.reduce((s, n) => s + (n.x - mx) * (n.y - my), 0) / den : 0;
+    const first = Math.min(...nines.map(n => n.a + n.step * n.lo)), step = Math.min(...nines.map(n => n.step));
+    const last = Math.max(...nines.map(n => n.a + n.step * (n.hi + 2)));
+    holeRows.push({ nines, slope, base: my - slope * mx, from: first - 8 * step, to: last });
+  });
+  if (!holeRows.length) return null;
+
+  // Each word belongs to the table (block) whose hole numbers are nearest above it, measured along that row's
+  // slant; words above every block go to the nearest one (tees listed above the hole numbers).
+  const blocks = holeRows.map(hr => ({ ...hr, words: [] }));
+  words.forEach(w => {
+    const fits = blocks.map(b => ({ b, d: w.y - (b.base + b.slope * w.x) })).filter(f => w.x >= f.b.from && w.x <= f.b.to);
+    const below = fits.filter(f => f.d > -0.5 * lineH);
+    const pick = (below.length ? below : fits).sort((p, q) => Math.abs(p.d) - Math.abs(q.d))[0];
+    if (pick) pick.b.words.push({ ...w, y: pick.d });
+  });
+
+  const holes = {}, tees = [], totals = [];
+  blocks.sort((p, q) => p.base - q.base).forEach(block => {
+    const step = Math.min(...block.nines.map(n => n.step));
+    const left = Math.min(...block.nines.map(n => n.a + n.step * n.lo)) - 0.4 * step;
+    const lines = scanRows(block.words, lineH).filter(r => Math.abs(r.y) >= 0.5 * lineH).map(r => {   // not the hole numbers
+      // The label is what stands before the first hole's column, not titles far out.
+      const labelWords = r.words.filter(w => w.x < left && w.x > left - 5 * step);
+      const cells = {}, sums = {};
+      r.words.filter(w => w.x >= left).forEach(w => {
+        const v = scanNumber(w.text);
+        if (v === null) return;
+        block.nines.forEach(n => {
+          const pos = (w.x - n.a) / n.step;
+          const hole = Math.round(pos);
+          if (Math.abs(pos - hole) > 0.35) return;
+          if (hole >= n.lo && hole <= n.hi) cells[hole] = v;
+          // The column right after the nine is its total (Ut, In), unless the other nine's holes are there.
+          else if (hole === n.hi + 1 && !block.nines.some(o => o !== n && Math.abs((o.a + o.step * o.lo) - (n.a + n.step * hole)) < 0.5 * n.step)) sums[n.lo] = v;
+        });
+      });
+      return { y: r.y, labelWords, cells, sums };
+    });
+    // A row broken in two (a photo at an angle, a cell not read) is joined again: a piece with few cells goes into
+    // the nearest row with none of the same holes.
+    lines.filter(l => Object.keys(l.cells).length && Object.keys(l.cells).length < 3).forEach(piece => {
+      const into = lines.filter(l => l !== piece && !l.gone && Math.abs(l.y - piece.y) < lineH && !Object.keys(piece.cells).some(h => h in l.cells))
+        .sort((p, q) => Math.abs(p.y - piece.y) - Math.abs(q.y - piece.y))[0];
+      if (!into) return;
+      Object.assign(into.cells, piece.cells);
+      Object.entries(piece.sums).forEach(([h, v]) => { if (!(h in into.sums)) into.sums[h] = v; });
+      if (!into.labelWords.length) into.labelWords = piece.labelWords;
+      piece.gone = true;
+    });
+    lines.filter(l => !l.gone).forEach(({ labelWords, cells, sums }) => {
+      const label = labelWords.map(w => w.text).join(' ').trim();
+      if (Object.keys(cells).length < 3) return;
+      const kind = scanRowKind(label, Object.values(cells));
+      if (!kind) return;
+      // A few misread cells don't spoil the row; they are dropped and left for the player.
+      Object.keys(cells).forEach(h => { if (!SCAN_RANGE[kind](cells[h])) delete cells[h]; });
+      if (kind === 'length') {
+        // Tees named by a number (61, 57) often sit under a heading such as "Längd i meter": the number is the
+        // name. Otherwise the words just before the first column (Gul, Röd), not a heading further out.
+        const number = labelWords.filter(w => /^\d{1,3}$/.test(w.text)).pop();
+        const near = labelWords.filter(w => w.x > left - 2.5 * step).map(w => w.text).join(' ').trim();
+        const name = number ? number.text : near.slice(0, 24);
+        tees.push({ name: name || `Tee ${tees.length + 1}`, key: scanLabelKey(name) || `#${tees.length}`, lengths: cells, sums });
+      } else {
+        Object.entries(cells).forEach(([h, v]) => {
+          const hole = holes[h] || (holes[h] = { par: null, index: null });
+          if (hole[kind] === null) hole[kind] = v;
+        });
+        const same = totals.find(t => t.kind === kind);
+        if (same) Object.entries(sums).forEach(([h, v]) => { if (!(h in same.sums)) same.sums[h] = v; });
+        else totals.push({ kind, sums });
+      }
+    });
+  });
+  const order = blocks.flatMap(b => [...b.nines].sort((p, q) => (p.a + p.step * p.lo) - (q.a + q.step * q.lo)).map(n => Math.ceil(n.lo / 9)));
+  return { holes, tees, totals, order };
+}
+
+// Rows: follow words from left to right, joining a word to the row it continues: about the same height as the
+// row's last word, allowing for the row's own slant so far (a photo taken at an angle makes rows fan out).
+// Sorted top to bottom, each with its mean height y.
+function scanRows(words, lineH) {
+  const rows = [];
+  [...words].sort((a, b) => a.x - b.x).forEach(w => {
+    let row = null, dist = Infinity;
+    rows.forEach(r => {
+      if (r.lastX >= w.x) return;
+      // The slant of the row's last few numbers (labels and headings before them can sit anywhere).
+      const recent = r.words.filter(x => scanNumber(x.text) !== null).slice(-3);
+      const a0 = recent[0], a1 = recent[recent.length - 1];
+      const slant = recent.length > 1 && a1.x > a0.x ? Math.max(-0.3, Math.min(0.3, (a1.y - a0.y) / (a1.x - a0.x))) : 0;
+      const d = Math.abs(r.lastY + slant * (w.x - r.lastX) - w.y);
+      // Of rows equally close, the one that ended nearest wins over one that stopped far back (a row whose last
+      // words were not read must not take the next row's word).
+      const score = d + 0.05 * (w.x - r.lastX);
+      if (d < 0.6 * lineH && score < dist) { row = r; dist = score; }
+    });
+    if (!row) { row = { words: [], lastY: w.y, lastX: -Infinity }; rows.push(row); }
+    row.words.push(w); row.lastY = w.y; row.lastX = w.x;
+  });
+  rows.forEach(r => { r.y = r.words.reduce((s, w) => s + w.y, 0) / r.words.length; });
+  return rows.sort((a, b) => a.y - b.y);
+}
+
+// The best line through numbers lo–hi in one row: at least 4 numbers (3 for a short row) on one evenly spaced line.
+function fitHoleLine(nums, lineH, lo, hi) {
+  let best = null;
+  for (let i = 0; i < nums.length; i++) {
+    for (let j = 0; j < nums.length; j++) {
+      if (nums[j].v <= nums[i].v) continue;
+      const step = (nums[j].x - nums[i].x) / (nums[j].v - nums[i].v);
+      if (step < 0.8 * lineH) continue;
+      const a = nums[i].x - step * nums[i].v;
+      const fits = nums.filter(n => Math.abs(a + step * n.v - n.x) < 0.25 * step);
+      if (new Set(fits.map(n => n.v)).size !== fits.length) continue;
+      if (!best || fits.length > best.fits.length) best = { a, step, fits };
+    }
+  }
+  if (!best || best.fits.length < 4) return null;
+  // Least squares over the numbers on the line.
+  const f = best.fits, m = f.length;
+  const mv = f.reduce((s, n) => s + n.v, 0) / m, mx = f.reduce((s, n) => s + n.x, 0) / m;
+  const step = f.reduce((s, n) => s + (n.v - mv) * (n.x - mx), 0) / f.reduce((s, n) => s + (n.v - mv) ** 2, 0);
+  return { a: mx - step * mv, step, lo, hi, count: m };
+}
+
+function scanLabelKey(label) {
+  return label.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+const SCAN_RANGE = { par: v => PARS.includes(v), index: v => v >= 1 && v <= 18, length: v => v >= 40 && v <= 999 };
+
+// What a labelled row holds: 'par', 'index', 'length', or null (scores, players, empty rows). Most of its
+// values (three in four) must fit.
+function scanRowKind(label, values) {
+  const key = scanLabelKey(label);
+  const mostly = kind => values.filter(SCAN_RANGE[kind]).length >= 0.75 * values.length;
+  const fitting = kind => values.filter(SCAN_RANGE[kind]);
+  if (/^par/.test(key)) return mostly('par') ? 'par' : null;
+  if (/hcp|index|idx|handicap|^si$|slag/.test(key)) return mostly('index') ? 'index' : null;
+  if (/score|spelare|player|netto|resultat|poang|points|markor|marker/.test(key)) return null;
+  if (mostly('par') && new Set(fitting('par')).size < fitting('par').length) return 'par';
+  if (mostly('index') && new Set(fitting('index')).size === fitting('index').length && fitting('index').some(v => v > 6)) return 'index';
+  if (mostly('length')) return 'length';
+  return null;
+}
+
+// Joins what two pages (or both directions of one) found; what was read first wins.
+function mergeScorecards(a, b) {
+  Object.entries(b.holes).forEach(([h, v]) => {
+    const hole = a.holes[h] || (a.holes[h] = { par: null, index: null });
+    if (hole.par === null) hole.par = v.par;
+    if (hole.index === null) hole.index = v.index;
+  });
+  b.tees.forEach(t => {
+    const same = a.tees.find(x => x.key === t.key && !t.key.startsWith('#'));
+    if (!same) a.tees.push(t);
+  });
+  b.totals.forEach(t => {
+    const same = a.totals.find(x => x.kind === t.kind);
+    if (same) Object.assign(same.sums, t.sums); else a.totals.push(t);
+  });
+  b.order.forEach(n => { if (!a.order.includes(n)) a.order.push(n); });
+  return a;
+}
+
+// Turns raw findings into the result. Holes are numbered as printed until here. The first two nines with anything
+// read, in the order the card shows them, become holes 1–18: a loop printed as 19–27 and then 1–9 is played in
+// that order, so 19 becomes 1 and 1 becomes 10. One missing
+// value in a nine is worked out from the nine's total (Ut, In) when that was read, and one missing index on 18
+// holes from the indexes left over.
+function finishScorecard(found) {
+  const nineOf = h => Math.ceil(h / 9);
+  const read = new Set([...Object.keys(found.holes), ...found.tees.flatMap(t => Object.keys(t.lengths))].map(h => nineOf(Number(h))));
+  const nines = found.order.filter(n => read.has(n)).slice(0, 2);
+  if (!nines.length) return null;
+  const toCourse = h => (nines.indexOf(nineOf(h)) >= 0 ? nines.indexOf(nineOf(h)) * 9 + ((h - 1) % 9) + 1 : null);
+  const remap = obj => {
+    const out = {};
+    Object.entries(obj).forEach(([h, v]) => { const c = toCourse(Number(h)); if (c) out[c] = v; });
+    return out;
+  };
+  const raw = {
+    holes: remap(found.holes),
+    tees: found.tees.map(t => ({ ...t, lengths: remap(t.lengths), sums: remap(t.sums) })),
+    totals: found.totals.map(t => ({ ...t, sums: remap(t.sums) }))
+  };
+
+  // A tee's rows in separate blocks (front and back nine) are joined: by name, then the rest in the order they
+  // are printed (a name not read, or a title taken for one, must not split a tee in two).
+  const copy = t => ({ ...t, lengths: { ...t.lengths }, sums: { ...t.sums } });
+  const has = (t, front) => Object.keys(t.lengths).some(h => (h <= 9) === front);
+  const tees = raw.tees.filter(t => has(t, true)).map(copy);
+  const back = raw.tees.filter(t => !has(t, true));
+  const named = t => !t.key.startsWith('#') && !/^Tee \d+$/.test(t.name);
+  const join = (into, t) => {
+    Object.entries(t.lengths).forEach(([h, v]) => { if (!(h in into.lengths)) into.lengths[h] = v; });
+    Object.entries(t.sums).forEach(([h, v]) => { if (!(h in into.sums)) into.sums[h] = v; });
+    if (!named(into) && named(t)) { into.name = t.name; into.key = t.key; }
+    into.joined = true;
+  };
+  const open = () => tees.filter(x => !x.joined && !has(x, false));
+  const left = back.filter(t => {
+    const same = named(t) && open().find(x => x.key === t.key);
+    if (same) join(same, t);
+    return !same;
+  });
+  left.forEach(t => { const next = open()[0]; if (next) join(next, t); else tees.push(copy(t)); });
+  const count = nines.length * 9;
+  const holes = Array.from({ length: 18 }, (_, i) => {
+    const h = raw.holes[i + 1];
+    return { par: h && PARS.includes(h.par) ? h.par : null, index: h && h.index >= 1 && h.index <= 18 ? h.index : null };
+  });
+  const fillFromTotal = (values, sums, ok) => {
+    [1, 10].forEach(lo => {
+      const sum = sums[lo];
+      if (!Number.isFinite(sum) || lo > count) return;
+      const nine = [...Array(9).keys()].map(k => lo - 1 + k);
+      const missing = nine.filter(i => values[i] === null);
+      if (missing.length !== 1) return;
+      const v = sum - nine.reduce((s, i) => s + (values[i] || 0), 0);
+      if (ok(v)) values[missing[0]] = v;
+    });
+  };
+  const parTotal = raw.totals.find(t => t.kind === 'par');
+  if (parTotal) {
+    const pars = holes.map(h => h.par);
+    fillFromTotal(pars, parTotal.sums, v => PARS.includes(v));
+    pars.forEach((p, i) => { holes[i].par = p; });
+  }
+  if (count === 18) {
+    const used = holes.map(h => h.index).filter(v => v !== null);
+    const missing = holes.filter(h => h.index === null);
+    if (missing.length === 1 && new Set(used).size === 17) missing[0].index = [...Array(18).keys()].map(k => k + 1).find(v => !used.includes(v));
+  }
+  return {
+    count,
+    holes,
+    tees: tees.map(t => {
+      const lengths = Array.from({ length: 18 }, (_, i) => (Number.isFinite(t.lengths[i + 1]) ? t.lengths[i + 1] : null));
+      fillFromTotal(lengths, t.sums, v => v >= 40 && v <= 999);
+      return { name: t.name, lengths };
+    })
+  };
+}
+
 // Validates one imported course. Accepts a single flat list of holes with par, length and index (one tee,
 // "Standard"), or course holes with par and index plus a list of tees with lengths and optional par/index.
 // Returns a course or null.
@@ -2808,6 +3202,7 @@ app.addEventListener('click', event => {
     case 'courses': view = 'courses'; sheet = null; render(); break;
     case 'courses-back': view = 'list'; render(); break;
     case 'new-course': startNewCourse(); break;
+    case 'scan-scorecard': scanScorecard(); break;
     case 'edit-course': startEditCourse(el.dataset.id); break;
     case 'cancel-course': draft = null; view = 'courses'; render(); break;
     case 'save-course': saveCourse(); break;
@@ -2816,6 +3211,8 @@ app.addEventListener('click', event => {
       const par = Number(el.dataset.par);
       const i = Number(el.dataset.i);
       draft.all[i].par = par;
+      if (draft.unread) draft.unread.par.delete(i);
+      el.parentElement.classList.remove('unread');
       el.parentElement.querySelectorAll('.par-btn').forEach(btn => {
         btn.classList.toggle('on', Number(btn.dataset.par) === par);
       });
@@ -3008,6 +3405,8 @@ app.addEventListener('input', event => {
     const digits = target.value.replace(/\D/g, '').slice(0, 4);
     if (digits !== target.value) target.value = digits;
     draft.tees[draft.teeIdx].holes[Number(target.dataset.i)].length = digits ? parseInt(digits, 10) : null;
+    if (draft.tees[draft.teeIdx].unread) draft.tees[draft.teeIdx].unread.delete(Number(target.dataset.i));
+    target.classList.remove('unread');
     updateDraftTotals();
   } else if (target.classList.contains('opar') || target.classList.contains('oidx')) {
     const digits = target.value.replace(/\D/g, '').slice(0, target.classList.contains('opar') ? 1 : 2);
@@ -3018,6 +3417,8 @@ app.addEventListener('input', event => {
     const digits = target.value.replace(/\D/g, '').slice(0, 2);
     if (digits !== target.value) target.value = digits;
     draft.all[Number(target.dataset.i)].index = digits ? parseInt(digits, 10) : null;
+    if (draft.unread) draft.unread.index.delete(Number(target.dataset.i));
+    target.classList.remove('unread');
   }
 });
 
