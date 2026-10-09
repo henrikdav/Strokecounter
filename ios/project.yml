@@ -35,6 +35,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Used to measure shot distances and track your position on the course during a round.
+        INFOPLIST_KEY_NSCameraUsageDescription: Used to photograph a printed scorecard when you add a course. The photo is read on your iPhone and is not saved or sent anywhere.
         INFOPLIST_KEY_NSHealthShareUsageDescription: Stroke Counter does not read any health data.
         INFOPLIST_KEY_NSHealthUpdateUsageDescription: Starts Stroke Counter on your Apple Watch with a golf workout when you start a round. The workout is not saved to Health.
         TARGETED_DEVICE_FAMILY: "1"

@@ -17,6 +17,9 @@ The web app owns all data. In the iOS app it runs inside the web view and stores
 
 - **GPS** (`GPSBridge.swift`, `gps-shim.js`): replaces `navigator.geolocation` with CoreLocation inside the app.
 - **Course map** (`CourseMapBridge.swift`, `CourseMapViewController.swift`): a native MapKit satellite map of the hole.
+- **Scorecard scan** (`ScorecardBridge.swift`, `ScorecardReader.swift`): on a new course, photographs a printed
+  scorecard with the document camera and reads its text with Vision on the phone (offline, nothing uploaded). The web
+  app's `parseScorecard()` finds holes, par, index and lengths in the words and fills the course editor.
 - **Watch sync** (`WatchBridge.swift`): passes the round to the watch and the watch's strokes back to the web app.
 - **Dialogs** (`WebAppView.swift`): shows the web app's `confirm()` and `alert()`, which WKWebView otherwise ignores.
 
@@ -180,6 +183,7 @@ python3 and Chrome (set `CHROME=/path/to/chrome` if it isn't found).
 | `gps` | The GPS watch: restarts after a denied error and on return to the app, the status pill |
 | `gps-shim` | `ios/StrokeCounter/gps-shim.js` with a fake native bridge |
 | `course-map` | The Map button and what it sends to the native map |
+| `scorecard` | `parseScorecard` on Vision output recorded from rendered scorecards (`tests/fixtures`), and the scan flow in the course editor |
 
 The iOS bridges are faked with a script put at the top of the app's `<head>` (`WATCH_BRIDGE`, `MAP_BRIDGE` in
 `harness.js`).
