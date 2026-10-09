@@ -70,6 +70,13 @@ test(async () => {
     card.tees.map(t => t.name).join() === '61,57,53,48,43' && card.tees[0].lengths.join() === '380,310,190,340,320,530,570,160,380,355,445,380,180,325,165,340,340,355' && card.tees[4].lengths[12] === 75,
     JSON.stringify(card.tees.map(t => t.name + ':' + t.lengths.join(' '))));
 
+  // A 6-hole par 3 course, holes down a column under "Hål": fewer than seven hole numbers count after a Hål label.
+  // The app has 9 or 18 holes, so it becomes 9 with holes 7–9 left unread.
+  card = parse([await fixture('scorecard-six')]);
+  ok('six holes: par and index on holes 1–6, nothing on 7–9, no tees',
+    card && card.count === 9 && card.holes.slice(0, 9).map(h => h.par).join() === '3,3,3,3,3,3,,,' && card.holes.slice(0, 6).map(h => h.index).join() === '2,4,3,6,5,1' && card.tees.length === 0,
+    card && JSON.stringify(card));
+
   // The same card read downwards (hole numbers in a column) and both cards as two pages.
   const turned = { width: wide.height, height: wide.width, words: wide.words.map(w => ({ text: w.text, x: w.y, y: w.x, w: w.h, h: w.w })) };
   card = parse([turned]);
@@ -84,7 +91,10 @@ test(async () => {
   app.q('#course-name').value = 'Testbanan';
   await app.click('[data-action=scan-scorecard]');
   ok('it asks the iOS app to scan', posted.some(m => m.type === 'scan'));
-  for (const status of ['reading', 'cancelled', 'denied', 'unsupported', 'failed']) app.E(`scorecardScanned({ status: '${status}' })`);
+  app.E("scorecardScanned({ status: 'reading' })");
+  ok('while reading, a note says so', /Reading the scorecard/.test(app.q('.scan-note').textContent));
+  for (const status of ['cancelled', 'denied', 'unsupported', 'failed']) app.E(`scorecardScanned({ status: '${status}' })`);
+  ok('the note goes when reading ends', !app.q('.scan-note'));
   ok('cancel, no camera access or a failure leave the course as it was', app.E('draft.tees.length === 1 && draft.all[2].par === 4 && draft.all[0].index === null && !draft.scanNote'));
   app.E("scorecardScanned({ status: 'ok', pages: [{ width: 10, height: 10, words: [] }] })");
   ok('nothing found: the course stays as it was', app.E('!draft.scanNote && draft.all[2].par === 4'));

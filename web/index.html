@@ -1159,7 +1159,7 @@ function renderCourseEdit() {
       </header>
       <main class="scroll">
         ${scorecardBridge && !draft.id ? `<button class="modbtn scan-btn" data-action="scan-scorecard">Scan scorecard</button>` : ''}
-        ${draft.scanNote ? `<p class="hint scan-note">${esc(draft.scanNote)}</p>` : ''}
+        ${draft.scanning ? '<p class="hint scan-note">Reading the scorecard…</p>' : (draft.scanNote ? `<p class="hint scan-note">${esc(draft.scanNote)}</p>` : '')}
         <label class="field"><span>Name</span>
           <input id="course-name" type="text" maxlength="60" autocomplete="off" value="${esc(draft.name)}">
         </label>
@@ -2154,7 +2154,13 @@ function scanScorecard() {
 // height, words: [{ text, x, y, w, h }] }] }; or status 'cancelled', 'denied' (no camera access), 'unsupported'
 // or 'failed'. Anything but a readable card leaves the course as it was.
 function scorecardScanned(result) {
-  if (result && result.status === 'reading') { toast('Reading the scorecard…'); return; }
+  const editing = view === 'course-edit' && draft && !draft.id;
+  // Reading takes a few seconds; the note stays up until the result replaces it.
+  if (result && result.status === 'reading') {
+    if (editing) { keepDraftNames(); draft.scanning = true; render(); }
+    return;
+  }
+  if (editing && draft.scanning) { keepDraftNames(); draft.scanning = false; render(); }
   if (!result || result.status === 'cancelled') return;
   if (result.status === 'denied') { toast('Allow camera access in Settings to scan a scorecard', 'bad'); return; }
   if (result.status !== 'ok') { toast('Could not scan the scorecard', 'bad'); return; }
@@ -2257,12 +2263,14 @@ function scorecardGrid(words) {
 
   // Hole-number rows: numbers 1–9, 10–18, 19–27 or 28–36 that sit on evenly spaced columns, in order. Each nine
   // gets its own line (x = a + step × hole), since a total column often sits between 9 and 10; missing numbers are
-  // filled in. Seven numbers at least, so a stray run of digits (a keyboard in the photo) is not taken for holes.
+  // filled in. Seven numbers at least, so a stray run of digits (a keyboard in the photo) is not taken for holes,
+  // or four after a word for hole (Hål, Hole), as on a short course.
   const holeRows = [];
   scanRows(words, lineH).forEach(r => {
     const nums = r.words.map(w => ({ v: scanNumber(w.text), x: w.x, y: w.y })).filter(n => n.v !== null && n.v >= 1 && n.v <= 36);
     const nines = [[1, 9], [10, 18], [19, 27], [28, 36]].map(([lo, hi]) => fitHoleLine(nums.filter(n => n.v >= lo && n.v <= hi), lineH, lo, hi)).filter(Boolean);
-    if (nines.reduce((n, nine) => n + nine.count, 0) < 7) return;
+    const titled = r.words.some(w => /^(hal|hai|hol|hole|holes)$/.test(scanLabelKey(w.text)) && w.x < Math.min(...nums.map(n => n.x)));
+    if (nines.reduce((n, nine) => n + nine.count, 0) < (titled ? 4 : 7)) return;
     // The row's own slant: a card photographed at an angle slants each table its own way.
     const on = nums.filter(n => nines.some(nine => n.v >= nine.lo && n.v <= nine.hi));
     const mx = on.reduce((s, n) => s + n.x, 0) / on.length, my = on.reduce((s, n) => s + n.y, 0) / on.length;
@@ -2360,7 +2368,10 @@ function scanRows(words, lineH) {
       const a0 = recent[0], a1 = recent[recent.length - 1];
       const slant = recent.length > 1 && a1.x > a0.x ? Math.max(-0.3, Math.min(0.3, (a1.y - a0.y) / (a1.x - a0.x))) : 0;
       const d = Math.abs(r.lastY + slant * (w.x - r.lastX) - w.y);
-      if (d < 0.6 * lineH && d < dist) { row = r; dist = d; }
+      // Of rows equally close, the one that ended nearest wins over one that stopped far back (a row whose last
+      // words were not read must not take the next row's word).
+      const score = d + 0.05 * (w.x - r.lastX);
+      if (d < 0.6 * lineH && score < dist) { row = r; dist = score; }
     });
     if (!row) { row = { words: [], lastY: w.y, lastX: -Infinity }; rows.push(row); }
     row.words.push(w); row.lastY = w.y; row.lastX = w.x;
