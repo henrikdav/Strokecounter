@@ -9,8 +9,11 @@ final class SyncClient: NSObject, WCSessionDelegate {
     var onSnapshot: ((String) -> Void)?
     // The unconfirmed events, resent when the session is ready and when the phone asks for them ("flush").
     var outbox: () -> [WatchEvent] = { [] }
+    // The recording being written now, never sent while it grows.
+    var activeRecording: () -> URL? = { nil }
 
     private let session: WCSession? = WCSession.isSupported() ? WCSession.default : nil
+    private var resentRecordings = false
 
     func activate() {
         session?.delegate = self
@@ -22,6 +25,35 @@ final class SyncClient: NSObject, WCSessionDelegate {
         session.transferUserInfo(["events": json])
         if session.isReachable {
             session.sendMessage(["events": json], replyHandler: nil, errorHandler: nil)
+        }
+    }
+
+    // Swing detection step 1: sends a finished recording's files to the phone. The system queues them and
+    // delivers them when it can; each file is deleted here once delivered (didFinish below).
+    func sendRecording(_ folder: URL) {
+        guard let session, session.activationState == .activated else { return }
+        let sending = Set(session.outstandingFileTransfers.map(\.file.fileURL.standardizedFileURL))
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        for file in files where !sending.contains(file.standardizedFileURL) {
+            session.transferFile(file, metadata: ["recording": folder.lastPathComponent, "file": file.lastPathComponent])
+        }
+    }
+
+    // Recordings left from an earlier run (not delivered before the app was closed) are sent again. Called once
+    // the session is ready, before a new recording can start.
+    private func resendRecordings() {
+        let folders = (try? FileManager.default.contentsOfDirectory(at: SwingRecorder.recordingsFolder, includingPropertiesForKeys: nil)) ?? []
+        let active = activeRecording()?.standardizedFileURL
+        folders.filter { $0.standardizedFileURL != active }.forEach(sendRecording)
+    }
+
+    func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        guard error == nil else { return }
+        let file = fileTransfer.file.fileURL
+        try? FileManager.default.removeItem(at: file)
+        let folder = file.deletingLastPathComponent()
+        if (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.isEmpty == true {
+            try? FileManager.default.removeItem(at: folder)
         }
     }
 
@@ -47,6 +79,7 @@ final class SyncClient: NSObject, WCSessionDelegate {
             self.requestSnapshot()
             // Anything made before the session was ready goes now; the phone ignores repeats.
             self.send(self.outbox())
+            if !self.resentRecordings { self.resentRecordings = true; self.resendRecordings() }
         }
     }
 

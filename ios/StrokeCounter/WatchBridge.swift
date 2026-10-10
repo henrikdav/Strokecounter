@@ -90,6 +90,18 @@ final class WatchBridge: NSObject, WKScriptMessageHandler, WCSessionDelegate {
         receive(message)
     }
 
+    // Swing detection step 1: a motion recording from the watch (SwingRecorder), one file at a time. Saved under
+    // Documents/SwingRecordings/<recording>/ for analysis on the Mac; the system deletes its copy after this returns.
+    func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        guard let recording = file.metadata?["recording"] as? String, let name = file.metadata?["file"] as? String,
+              !recording.contains("/"), !name.contains("/") else { return }
+        let folder = URL.documentsDirectory.appending(path: "SwingRecordings").appending(path: recording)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appending(path: name)
+        try? FileManager.default.removeItem(at: target)
+        try? FileManager.default.moveItem(at: file.fileURL, to: target)
+    }
+
     // The watch asks for the current round, e.g. right after its app starts.
     func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
         DispatchQueue.main.async {

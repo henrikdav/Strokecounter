@@ -31,6 +31,8 @@ final class WatchStore: ObservableObject {
             self?.change { $0.fillPosition(position, strokeId: strokeId, roundId: roundId, hole: hole) }
         }
         session.onFix = { [weak self] fix in self?.lastFix = fix }
+        session.onRecording = { [weak self] folder in self?.sync.sendRecording(folder) }
+        sync.activeRecording = { [weak self] in self?.session.recorder.currentFolder }
         session.roundChanged(id: state.round?.id, finished: state.isRoundFinished)
         sync.activate()
     }
@@ -77,11 +79,12 @@ final class WatchStore: ObservableObject {
               let roundId = state.round?.id else { return nil }
         if fix == nil { session.awaitFix(strokeId: id, roundId: roundId, hole: hole) } else { session.stopAwaitingFix() }
         armedMods = []
+        if let stroke = event.stroke { session.recorder.noteStroke(stroke, hole: hole) }
         return event.stroke
     }
 
     func removeStroke(_ id: String, hole: Int) {
-        change { $0.removeStroke(id: id, hole: hole, t: Self.now) }
+        if change({ $0.removeStroke(id: id, hole: hole, t: Self.now) }) != nil { session.recorder.noteRemoved(strokeId: id) }
     }
 
     // Locks the current shot's distance where the watch is now, as its landing. False when there is no fix.
