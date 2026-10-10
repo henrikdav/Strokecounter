@@ -4,8 +4,8 @@ import UIKit
 import WebKit
 
 // Scans a printed scorecard when the web app posts { type: "scan" } to the scorecard handler (New course).
-// A menu offers Take Photo (the ordinary camera, one photo) or Choose from Photos (up to two pictures, e.g.
-// screenshots of holes 1-9 and 10-18 from another golf app). The photo picker needs no access to the library: it
+// A menu offers Take Photo (the ordinary camera, one photo) or Choose from Photos (up to five pictures, e.g.
+// screenshots of another golf app's scorecard, one per tee). The photo picker needs no access to the library: it
 // hands over only the pictures chosen. ScorecardReader then reads the text on the phone: nothing is sent anywhere
 // and it works offline. (The document camera was tried first, but it keeps capturing pages until Save.)
 // The web app's scorecardScanned() gets { status: "reading" } while it reads, then { status: "ok", pages }, or
@@ -74,7 +74,7 @@ final class ScorecardBridge: NSObject, WKScriptMessageHandler, UIImagePickerCont
         guard let top = webView?.topViewController else { reply(["status": "failed"]); return }
         var configuration = PHPickerConfiguration()
         configuration.filter = .images
-        configuration.selectionLimit = 2
+        configuration.selectionLimit = 5
         configuration.selection = .ordered
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = self
@@ -102,10 +102,14 @@ final class ScorecardBridge: NSObject, WKScriptMessageHandler, UIImagePickerCont
     // MARK: Reading
 
     private func read(_ images: [UIImage]) {
-        send(["status": "reading"])
         let pictures = images.compactMap { image in image.cgImage.map { ($0, CGImagePropertyOrientation(image.imageOrientation)) } }
+        // A few seconds per picture, so the web app shows which one is being read.
+        send(["status": "reading", "page": 1, "pages": pictures.count])
         DispatchQueue.global(qos: .userInitiated).async {
-            let pages = pictures.map { ScorecardReader.read($0.0, orientation: $0.1) }
+            let pages = pictures.enumerated().map { i, picture -> [String: Any] in
+                if i > 0 { DispatchQueue.main.async { self.send(["status": "reading", "page": i + 1, "pages": pictures.count]) } }
+                return ScorecardReader.read(picture.0, orientation: picture.1)
+            }
             DispatchQueue.main.async { self.reply(pages.isEmpty ? ["status": "failed"] : ["status": "ok", "pages": pages]) }
         }
     }

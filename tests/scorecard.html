@@ -93,6 +93,8 @@ test(async () => {
   ok('it asks the iOS app to scan', posted.some(m => m.type === 'scan'));
   app.E("scorecardScanned({ status: 'reading' })");
   ok('while reading, a note says so', /Reading the scorecard/.test(app.q('.scan-note').textContent));
+  app.E("scorecardScanned({ status: 'reading', page: 2, pages: 5 })");
+  ok('with several pictures, the note says which one', /Reading the scorecard… \(2 of 5\)/.test(app.q('.scan-note').textContent));
   for (const status of ['cancelled', 'denied', 'unsupported', 'failed']) app.E(`scorecardScanned({ status: '${status}' })`);
   ok('the note goes when reading ends', !app.q('.scan-note'));
   ok('cancel, no camera access or a failure leave the course as it was', app.E('draft.tees.length === 1 && draft.all[2].par === 4 && draft.all[0].index === null && !draft.scanNote'));

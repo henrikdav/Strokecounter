@@ -18,7 +18,7 @@ The web app owns all data. In the iOS app it runs inside the web view and stores
 - **GPS** (`GPSBridge.swift`, `gps-shim.js`): replaces `navigator.geolocation` with CoreLocation inside the app.
 - **Course map** (`CourseMapBridge.swift`, `CourseMapViewController.swift`): a native MapKit satellite map of the hole.
 - **Scorecard scan** (`ScorecardBridge.swift`, `ScorecardReader.swift`): on a new course, takes a photo of a printed
-  scorecard (or picks up to two pictures from Photos, e.g. screenshots) and reads its text with Vision on the phone (offline, nothing uploaded). The web
+  scorecard (or picks up to five pictures from Photos, e.g. screenshots) and reads its text with Vision on the phone (offline, nothing uploaded). The web
   app's `parseScorecard()` finds holes, par, index and lengths in the words and fills the course editor.
 - **Watch sync** (`WatchBridge.swift`): passes the round to the watch and the watch's strokes back to the web app.
 - **Dialogs** (`WebAppView.swift`): shows the web app's `confirm()` and `alert()`, which WKWebView otherwise ignores.

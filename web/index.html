@@ -1159,7 +1159,7 @@ function renderCourseEdit() {
       </header>
       <main class="scroll">
         ${scorecardBridge && !draft.id ? `<button class="modbtn scan-btn" data-action="scan-scorecard">Scan scorecard</button>` : ''}
-        ${draft.scanning ? '<p class="hint scan-note">Reading the scorecard…</p>' : (draft.scanNote ? `<p class="hint scan-note">${esc(draft.scanNote)}</p>` : '')}
+        ${draft.scanning ? `<p class="hint scan-note">Reading the scorecard…${draft.scanning === true ? '' : ` (${esc(draft.scanning)})`}</p>` : (draft.scanNote ? `<p class="hint scan-note">${esc(draft.scanNote)}</p>` : '')}
         <label class="field"><span>Name</span>
           <input id="course-name" type="text" maxlength="60" autocomplete="off" value="${esc(draft.name)}">
         </label>
@@ -2150,14 +2150,14 @@ function scanScorecard() {
   scorecardBridge.postMessage({ type: 'scan' });
 }
 
-// Called by the iOS app: { status: 'reading' } once the photo is taken, then { status: 'ok', pages: [{ width,
+// Called by the iOS app: { status: 'reading', page, pages } once the pictures are taken or chosen, then { status: 'ok', pages: [{ width,
 // height, words: [{ text, x, y, w, h }] }] }; or status 'cancelled', 'denied' (no camera access), 'unsupported'
 // or 'failed'. Anything but a readable card leaves the course as it was.
 function scorecardScanned(result) {
   const editing = view === 'course-edit' && draft && !draft.id;
   // Reading takes a few seconds; the note stays up until the result replaces it.
   if (result && result.status === 'reading') {
-    if (editing) { keepDraftNames(); draft.scanning = true; render(); }
+    if (editing) { keepDraftNames(); draft.scanning = result.pages > 1 ? `${result.page} of ${result.pages}` : true; render(); }
     return;
   }
   if (editing && draft.scanning) { keepDraftNames(); draft.scanning = false; render(); }
