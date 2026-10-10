@@ -2314,6 +2314,13 @@ function scorecardGrid(words) {
       });
       return { y: r.y, labelWords, cells, sums };
     });
+    // A heading that sits off its column (a right-aligned column under a centred "46") lands in a row of its own:
+    // it becomes the label of the nearest row that has cells but no label.
+    lines.filter(l => !Object.keys(l.cells).length && l.labelWords.length).forEach(head => {
+      const into = lines.filter(l => Object.keys(l.cells).length && !l.labelWords.length && Math.abs(l.y - head.y) < 1.5 * lineH)
+        .sort((p, q) => Math.abs(p.y - head.y) - Math.abs(q.y - head.y))[0];
+      if (into) { into.labelWords = head.labelWords; head.labelWords = []; }
+    });
     // A row broken in two (a photo at an angle, a cell not read) is joined again: a piece with few cells goes into
     // the nearest row with none of the same holes.
     lines.filter(l => Object.keys(l.cells).length && Object.keys(l.cells).length < 3).forEach(piece => {
@@ -2330,8 +2337,13 @@ function scorecardGrid(words) {
       if (Object.keys(cells).length < 3) return;
       const kind = scanRowKind(label, Object.values(cells));
       if (!kind) return;
-      // A few misread cells don't spoil the row; they are dropped and left for the player.
+      // A few misread cells don't spoil the row; they are dropped and left for the player. So is an index read
+      // twice, since one of the two is wrong.
       Object.keys(cells).forEach(h => { if (!SCAN_RANGE[kind](cells[h])) delete cells[h]; });
+      if (kind === 'index') {
+        const seen = Object.values(cells);
+        Object.keys(cells).forEach(h => { if (seen.filter(v => v === cells[h]).length > 1) delete cells[h]; });
+      }
       if (kind === 'length') {
         // Tees named by a number (61, 57) often sit under a heading such as "Längd i meter": the number is the
         // name. Otherwise the words just before the first column (Gul, Röd), not a heading further out.
@@ -2414,9 +2426,13 @@ function scanRowKind(label, values) {
   const key = scanLabelKey(label);
   const mostly = kind => values.filter(SCAN_RANGE[kind]).length >= 0.75 * values.length;
   const fitting = kind => values.filter(SCAN_RANGE[kind]);
-  if (/^par/.test(key)) return mostly('par') ? 'par' : null;
-  if (/hcp|index|idx|handicap|^si$|slag/.test(key)) return mostly('index') ? 'index' : null;
   if (/score|spelare|player|netto|resultat|poang|points|markor|marker/.test(key)) return null;
+  if (/^par/.test(key)) return mostly('par') ? 'par' : null;
+  // Index values are all different (a misread one may repeat); strokes received (Shcp, Hcp slag: 2, 2, 3, 2…)
+  // repeat throughout and are no course data.
+  if (/hcp|index|idx|handicap|^si$|slag/.test(key)) {
+    return mostly('index') && new Set(fitting('index')).size >= 0.8 * fitting('index').length ? 'index' : null;
+  }
   if (mostly('par') && new Set(fitting('par')).size < fitting('par').length) return 'par';
   if (mostly('index') && new Set(fitting('index')).size === fitting('index').length && fitting('index').some(v => v > 6)) return 'index';
   if (mostly('length')) return 'length';
