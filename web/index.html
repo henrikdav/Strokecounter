@@ -971,7 +971,6 @@ function relativeDay(t) {
   const days = Math.round((start(new Date()) - start(new Date(t))) / 86400000);
   if (days === 0) return 'Today';
   if (days === 1) return 'Yesterday';
-  if (days > 1 && days < 7) return `${days} days ago`;
   return shortDateFmt.format(t);
 }
 
@@ -1027,9 +1026,11 @@ function renderList() {
   let currentHtml = '';
   if (current) {
     const { played } = roundTotals(current);
-    const started = relativeDay(current.createdAt) === 'Today'
+    // "Started 14:05", "Started yesterday 14:05", "Started 8 Oct 14:05": only Yesterday is lowercased mid-sentence.
+    const day = relativeDay(current.createdAt);
+    const started = day === 'Today'
       ? timeFmt.format(current.createdAt)
-      : `${relativeDay(current.createdAt).toLowerCase()} ${timeFmt.format(current.createdAt)}`;
+      : `${day === 'Yesterday' ? 'yesterday' : day} ${timeFmt.format(current.createdAt)}`;
     const open = current.id === openRowId;
     currentHtml = `
         <div class="continue-row">
