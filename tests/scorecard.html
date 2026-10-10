@@ -77,6 +77,28 @@ test(async () => {
     card && card.count === 9 && card.holes.slice(0, 9).map(h => h.par).join() === '3,3,3,3,3,3,,,' && card.holes.slice(0, 6).map(h => h.index).join() === '2,4,3,6,5,1' && card.tees.length === 0,
     card && JSON.stringify(card));
 
+  // Screenshots of a golf app's scorecard, one per tee: holes down a column, the tee's name (58, 46) centred over
+  // its right-aligned lengths, then Par, Index and Shcp (strokes received, not course data). Two pictures, one tee each.
+  card = parse([await fixture('scorecard-app-58'), await fixture('scorecard-app-46')]);
+  const APP_PAR = [5, 4, 4, 3, 4, 4, 5, 4, 3, 4, 4, 5, 3, 4, 4, 4, 3, 5];
+  const APP_IDX = [5, 9, 13, 17, 3, 11, 1, 7, 15, 10, 14, 4, 16, 8, 2, 6, 18, 12];
+  ok('screenshots: par all right', card && tally(card.holes.map(h => h.par), APP_PAR).right === 18, card && JSON.stringify(card.holes.map(h => h.par)));
+  idx = tally(card.holes.map(h => h.index), APP_IDX);
+  ok('screenshots: no wrong index, Shcp not taken for it (an index read twice is left out)', idx.wrong === 0 && idx.right >= 16, JSON.stringify(idx));
+  ok('screenshots: one tee per picture, named from the heading, all lengths',
+    card.tees.map(t => t.name).join() === '58,46' && card.tees[0].lengths.join() === '461,365,319,115,385,249,447,375,158,266,341,495,167,306,356,337,137,443' && card.tees[1].lengths[17] === 358,
+    JSON.stringify(card.tees.map(t => t.name + ':' + t.lengths.join(' '))));
+
+  // On the phone, a length and the par beside it came back as one word ("373" + "5" = "3735"): the length is kept
+  // and the par goes to the par row.
+  const app46 = await fixture('scorecard-app-46');
+  const len373 = app46.words.find(w => w.text === '373');
+  const par5 = app46.words.find(w => w.text === '5' && Math.abs(w.y - len373.y) < 10 && w.x > len373.x && w.x < len373.x + 150);
+  const joined = { ...app46, words: app46.words.filter(w => w !== len373 && w !== par5).concat({ ...len373, text: '3735', x: (len373.x - len373.w / 2 + par5.x + par5.w / 2) / 2, w: par5.x + par5.w / 2 - (len373.x - len373.w / 2) }) };
+  card = parse([joined]);
+  ok('a length and par read as one word are told apart', card && card.tees[0].lengths[0] === 373 && card.holes[0].par === 5,
+    card && JSON.stringify([card.tees[0].lengths[0], card.holes[0].par]));
+
   // The same card read downwards (hole numbers in a column) and both cards as two pages.
   const turned = { width: wide.height, height: wide.width, words: wide.words.map(w => ({ text: w.text, x: w.y, y: w.x, w: w.h, h: w.w })) };
   card = parse([turned]);
@@ -93,6 +115,8 @@ test(async () => {
   ok('it asks the iOS app to scan', posted.some(m => m.type === 'scan'));
   app.E("scorecardScanned({ status: 'reading' })");
   ok('while reading, a note says so', /Reading the scorecard/.test(app.q('.scan-note').textContent));
+  app.E("scorecardScanned({ status: 'reading', page: 2, pages: 5 })");
+  ok('with several pictures, the note says which one', /Reading the scorecard… \(2 of 5\)/.test(app.q('.scan-note').textContent));
   for (const status of ['cancelled', 'denied', 'unsupported', 'failed']) app.E(`scorecardScanned({ status: '${status}' })`);
   ok('the note goes when reading ends', !app.q('.scan-note'));
   ok('cancel, no camera access or a failure leave the course as it was', app.E('draft.tees.length === 1 && draft.all[2].par === 4 && draft.all[0].index === null && !draft.scanNote'));
