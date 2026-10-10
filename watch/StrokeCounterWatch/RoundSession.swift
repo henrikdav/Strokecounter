@@ -10,6 +10,11 @@ final class RoundSession {
     var onLateFix: ((String, String, Int, WatchEvent.Position) -> Void)?
     // Every new fix, for what is shown live (the distance of the current shot).
     var onFix: ((CLLocation) -> Void)?
+    // A swing recording finished (swing detection step 1): its folder, to send to the phone.
+    var onRecording: ((URL) -> Void)?
+
+    // Records motion while the workout runs (SwingRecorder); strokes logged here are noted in it.
+    let recorder = SwingRecorder()
 
     private let location = LocationTracker()
     private let workout = RoundWorkout()
@@ -29,13 +34,16 @@ final class RoundSession {
     init() {
         location.onFix = { [weak self] fix in
             self?.lateFix(fix)
+            self?.recorder.noteFix(fix)
             self?.onFix?(fix)
         }
         workout.onChange = { [weak self] in
             guard let self else { return }
             if self.workout.isRunning, let until = self.announceUntil, Date() < until { self.announce() }
             self.updateLocation()
+            self.updateRecording()
         }
+        recorder.onFinished = { [weak self] folder in self?.onRecording?(folder) }
     }
 
     // The latest fix if it is recent enough for a new stroke (LocationTracker.maxAge), else nil.
@@ -100,6 +108,15 @@ final class RoundSession {
 
     func stopAwaitingFix() {
         awaitingFix = nil
+    }
+
+    // Motion is recorded exactly while the round's workout runs.
+    private func updateRecording() {
+        if workout.isRunning, let id = workout.roundId {
+            if !recorder.isRecording { recorder.start(roundId: id) }
+        } else if recorder.isRecording {
+            recorder.stop()
+        }
     }
 
     private func updateLocation() {

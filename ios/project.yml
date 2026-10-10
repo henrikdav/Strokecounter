@@ -68,6 +68,7 @@ targets:
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.henrikdav.StrokeCounter
         INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: NO
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Used to record where each stroke you log on the watch was played from.
+        INFOPLIST_KEY_NSMotionUsageDescription: Records the watch's motion during a round to learn to recognise golf swings. The recording stays on your watch and iPhone.
         INFOPLIST_KEY_NSHealthShareUsageDescription: Stroke Counter does not read any health data.
         INFOPLIST_KEY_NSHealthUpdateUsageDescription: Runs a golf workout during a round so the app stays open on your wrist and keeps GPS on. The workout is not saved to Health.
         SKIP_INSTALL: YES

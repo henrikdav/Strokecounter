@@ -155,6 +155,12 @@ blocks the screen in automated runs.
   `applyWatchEvents()` in `index.html` merges them by stroke id. Applying an event twice changes nothing, removed
   strokes are remembered, and changes made after a hole was locked or the round was finished are refused.
 
+- **Swing recordings (test build):** while a round's workout runs, the watch records its motion at 100 Hz to
+  learn to recognise swings, and sends the recording to the phone when the workout ends
+  (`Documents/SwingRecordings`). Copy it to the Mac with `xcrun devicectl device copy from … --domain-type
+  appDataContainer --domain-identifier com.henrikdav.StrokeCounter --source Documents/SwingRecordings/<name>/motion.bin`
+  (and `events.jsonl`), then `tools/swing/inspect.py <folder>`.
+
 The full protocol (every message, field and rule, and how versions work) is in
 [docs/watch-sync.md](docs/watch-sync.md).
 

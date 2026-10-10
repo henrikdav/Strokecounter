@@ -158,6 +158,14 @@ the watch's clock.
   round is not finished, ends when the snapshot says `finished` or the round is removed, and when another
   unfinished round arrives it ends the old session and starts one for the new round.
 
+## Swing recordings (watch → phone, test build)
+
+Swing detection step 1 (`SwingRecorder.swift`) records the watch's motion while the round's workout runs. When
+the workout ends, the recording's two files go to the phone with `transferFile`, metadata `{ recording, file }`;
+the watch deletes each file once delivered and resends what is left when the app starts again. This is separate
+from the round sync above and has no version: it goes away or changes with step 2. Format and an inspector:
+`tools/swing/inspect.py`.
+
 ## What is stored where
 
 | Where | Key / file | What |
@@ -165,7 +173,9 @@ the watch's clock.
 | Web app | `localStorage` `golf-strokes.v1` | The rounds, including `removedStrokeIds`, `locked`, `lockedAt`, `finished`, `finishedAt`, `watchRoundId` |
 | iOS app | `UserDefaults` `watchSnapshot` | The last snapshot, to answer `snapshot-request` |
 | iOS app | `Application Support/watch-pending.json` | Events received but not yet applied by the web app |
-| Watch | `UserDefaults` `snapshot`, `outbox`, `lastClub` | The last snapshot, unconfirmed events, the club picked on the watch |
+| Watch | `UserDefaults` `snapshot`, `outbox`, `pickedClub` | The last snapshot, unconfirmed events, the club picked on the watch (with its hole and time) |
+| Watch | `Documents/SwingRecordings/<recording>/` | Swing detection step 1: motion recorded during the round, until delivered to the phone |
+| iOS app | `Documents/SwingRecordings/<recording>/` | The recordings received from the watch (`motion.bin`, `events.jsonl`), for analysis on the Mac |
 
 ## Versioning
 
