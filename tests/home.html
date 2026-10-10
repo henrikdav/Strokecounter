@@ -30,7 +30,12 @@ test(async () => {
   ok('badges: E green, +9 red, none without handicap, Not finished for old unfinished rounds',
     [badge('Even'), badge('Plus9'), badge('NoHcp'), badge('OldOpen')].join() === 'under:E,over:+9,none,neutral:Not finished',
     [badge('Even'), badge('Plus9'), badge('NoHcp'), badge('OldOpen')].join());
-  ok('row text: day, holes, strokes', /Yesterday · 9 holes · 45 strokes/.test(app.q('.past-card[data-id="Even"]').textContent) && /1 of 9 holes · 1 stroke$/.test(app.q('.past-card[data-id="OldOpen"] .past-meta').textContent));
+  const date3DaysAgo = app.E(`shortDateFmt.format(${now - 3 * DAY})`);
+  ok('row text: day, holes, strokes',
+    /Today · 9 holes · 36 strokes/.test(app.q('.past-card[data-id="NoHcp"]').textContent) &&
+    /Yesterday · 9 holes · 45 strokes/.test(app.q('.past-card[data-id="Even"]').textContent) &&
+    app.q('.past-card[data-id="Plus9"]').textContent.includes(date3DaysAgo) &&
+    /1 of 9 holes · 1 stroke$/.test(app.q('.past-card[data-id="OldOpen"] .past-meta').textContent));
   ok('the badge uses the scorecard\'s numbers', app.E("roundNet(db.rounds.find(r => r.id === 'Plus9'))") === app.E("sumScores(holeNumbers(db.rounds.find(r => r.id === 'Plus9')).map(h => holeScore(db.rounds.find(r => r.id === 'Plus9'), h, true))).net"));
   ok('no utility links or ✕ on the home screen', !app.q('main [data-action=courses]') && !app.q('[data-action=export]') && !app.q('[data-action=restore]') && !app.q('[data-action=edit-bag]') && !app.d.body.textContent.includes('✕'));
   ok('New round is the button at the bottom', !!app.q('.dock .primary[data-action=new-round]'));
