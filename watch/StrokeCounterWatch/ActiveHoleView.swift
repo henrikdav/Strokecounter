@@ -2,9 +2,9 @@ import SwiftUI
 import WatchKit
 
 // Screen 1: the hole being played. The wide "+1 STROKE" button logs a stroke with the suggested club, which is not
-// shown here since it may be wrong; club and modifiers are set afterwards, on the screen that confirms the stroke. Below it, the
-// hole's last stroke: a tap opens that screen again, to change it. Above it,
-// the distance of the current shot, live from GPS; a tap locks it as where the shot landed (Stop on the phone).
+// shown here since it may be wrong; club and modifiers are set afterwards, on the screen that confirms the stroke.
+// Below it, the hole's last stroke: a tap opens that screen again, to change it. Above it, the distance of the
+// current shot, live from GPS; a tap locks it as where the shot landed (Stop on the phone).
 // Undo (top left) removes the hole's last stroke; finish (top right, or a swipe up) ends the hole.
 // A hole locked on the phone shows a notice instead, and only finish works; a round finished on the phone is
 // read-only with nothing to do. Both update live with the phone.
