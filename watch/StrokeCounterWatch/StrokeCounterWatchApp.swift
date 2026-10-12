@@ -102,3 +102,15 @@ struct RootView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("No round") {
+    RootView()
+        .environmentObject(PreviewData.store(nil))
+}
+
+#Preview("Round") {
+    RootView()
+        .environmentObject(PreviewData.store())
+}
+#endif

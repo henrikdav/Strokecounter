@@ -51,3 +51,10 @@ struct ClubPickerView: View {
         .navigationTitle("My bag")
     }
 }
+
+#if DEBUG
+#Preview("Bag") {
+    NavigationStack { ClubPickerView(hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store())
+}
+#endif

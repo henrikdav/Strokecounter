@@ -89,3 +89,20 @@ struct FinishHoleView: View {
         .accessibilityLabel(marked.map { "Hole marked, plus or minus \(Int($0.acc.rounded())) meters. Tap to mark again" } ?? "Mark hole position")
     }
 }
+
+#if DEBUG
+#Preview("Finish hole") {
+    NavigationStack { FinishHoleView(hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store())
+}
+
+#Preview("Hole marked") {
+    NavigationStack { FinishHoleView(hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store(PreviewData.round(marked: true)))
+}
+
+#Preview("Last hole") {
+    NavigationStack { FinishHoleView(hole: 9, path: .constant([])) }
+        .environmentObject(PreviewData.store(PreviewData.round(currentHole: 9, locked: Array(1...8))))
+}
+#endif

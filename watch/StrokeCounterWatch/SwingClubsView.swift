@@ -86,3 +86,10 @@ struct SwingClubsView: View {
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
+
+#if DEBUG
+#Preview("After a swing") {
+    NavigationStack { SwingClubsView(hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store())
+}
+#endif

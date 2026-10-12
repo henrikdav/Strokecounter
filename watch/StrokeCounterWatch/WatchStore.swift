@@ -40,6 +40,15 @@ final class WatchStore: ObservableObject {
         sync.activate()
     }
 
+    #if DEBUG
+    // For the Xcode previews (PreviewData): a store showing the given round and fix, with nothing connected,
+    // nothing started and nothing saved.
+    init(preview snapshot: Snapshot?, fix: CLLocation?) {
+        state = RoundState(snapshot: snapshot)
+        lastFix = fix
+    }
+    #endif
+
     // MARK: What the screens show
 
     var round: Snapshot.Round? { state.round }
