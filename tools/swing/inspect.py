@@ -53,6 +53,12 @@ def main(folder):
         acc = max(math.hypot(x[1], x[2], x[3]) for x in window)
         print(f"  {at:8.1f} s  hole {s['hole']:>2} {s['club']:<8} peak rotation {math.hypot(rot[4], rot[5], rot[6]):5.1f} rad/s "
               f"{at - rot[0]:5.1f} s before, peak acceleration {acc:4.1f} g  [{how}, {swing_text}{position}]")
+    battery = [e for e in events if e['type'] == 'battery' and e.get('level', -1) >= 0]
+    if len(battery) > 1:
+        hours = (battery[-1]['t'] - battery[0]['t']) / 3_600_000
+        used = (battery[0]['level'] - battery[-1]['level']) * 100
+        print(f"battery {battery[0]['level']:.0%} -> {battery[-1]['level']:.0%} over {hours * 60:.0f} min: "
+              f"{used / hours:.0f} % per hour" if hours > 0 else '')
     if swings:
         count = lambda kind: sum(e['type'] == kind for e in events)
         print(f"{len(swings)} swings found; club list shown {count('swing-list')} times, "

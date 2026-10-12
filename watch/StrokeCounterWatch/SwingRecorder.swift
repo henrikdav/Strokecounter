@@ -3,10 +3,10 @@ import CoreMotion
 import Foundation
 import WatchKit
 
-// Follows the watch's motion while the round's golf workout runs: Core Motion's device motion at 100 Hz goes
+// Follows the watch's motion while the round's golf workout runs: Core Motion's device motion at 50 Hz goes
 // through the SwingDetector, and each swing found is passed on (onSwing). For testing the detector it also records
 // everything (recordsData): motion.bin with every sample, and events.jsonl with a header, each swing found, every
-// stroke logged on the watch and how (the answer key), and the GPS fixes. When the workout ends, the two files go
+// stroke logged on the watch and how (the answer key), the GPS fixes and the battery level every minute. When the workout ends, the two files go
 // to the phone (WatchBridge saves them under Documents/SwingRecordings) and are deleted here once delivered.
 //
 // motion.bin: one 40-byte record per sample, little-endian Float32 × 10: seconds since the header's t0, user
@@ -14,7 +14,9 @@ import WatchKit
 final class SwingRecorder {
     // While the detector is being tested, every round with a running workout is recorded too.
     static let recordsData = true
-    static let rate = 100.0
+    // 50 Hz: on the recorded rounds the detector found 20 of 27 shots at 50 Hz against 21 at 100 Hz, for half the
+    // work (battery).
+    static let rate = 50.0
 
     // A swing was found: when (seconds since 1970) and how strong. Called on the main queue.
     var onSwing: ((Date, SwingDetector.Swing) -> Void)?
@@ -34,6 +36,7 @@ final class SwingRecorder {
     private var motionFile: FileHandle?
     private var eventsFile: FileHandle?
     private var buffer = Data()
+    private var batteryTimer: Timer?
     private var t0: TimeInterval = 0          // seconds since 1970 at the start
     private var bootOffset: TimeInterval = 0  // seconds since 1970 at the device's boot, for motion timestamps
 
@@ -47,7 +50,10 @@ final class SwingRecorder {
         let now = Date().timeIntervalSince1970
         t0 = now
         bootOffset = now - ProcessInfo.processInfo.systemUptime
-        if Self.recordsData { openFiles(roundId: roundId, now: now) }
+        if Self.recordsData {
+            openFiles(roundId: roundId, now: now)
+            startBatteryLog()
+        }
         motion.deviceMotionUpdateInterval = 1 / Self.rate
         queue.addOperation { [self] in detector = SwingDetector() }
         motion.startDeviceMotionUpdates(to: queue) { [weak self] sample, _ in
@@ -66,7 +72,10 @@ final class SwingRecorder {
             motionFile = nil
         }
         queue.waitUntilAllOperationsAreFinished()
+        batteryTimer?.invalidate()
+        batteryTimer = nil
         guard let folder else { return }
+        noteBattery()
         write(event: ["type": "stop", "t": Self.ms(Date())])
         try? eventsFile?.close()
         eventsFile = nil
@@ -101,6 +110,27 @@ final class SwingRecorder {
         write(event: ["type": "fix", "t": Self.ms(fix.timestamp),
                       "lat": fix.coordinate.latitude, "lng": fix.coordinate.longitude,
                       "acc": fix.horizontalAccuracy, "speed": fix.speed])
+    }
+
+    // The battery level now and every minute, to measure what a round costs.
+    private func startBatteryLog() {
+        WKInterfaceDevice.current().isBatteryMonitoringEnabled = true
+        noteBattery()
+        let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in self?.noteBattery() }
+        RunLoop.main.add(timer, forMode: .common)
+        batteryTimer = timer
+    }
+
+    private func noteBattery() {
+        let device = WKInterfaceDevice.current()
+        let state: String
+        switch device.batteryState {
+        case .charging: state = "charging"
+        case .full: state = "full"
+        case .unplugged: state = "unplugged"
+        default: state = "unknown"
+        }
+        write(event: ["type": "battery", "t": Self.ms(Date()), "level": Double(device.batteryLevel), "state": state])
     }
 
     // MARK: Motion
