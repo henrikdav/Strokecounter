@@ -4,7 +4,7 @@ import Foundation
 // Sync protocol version (docs/watch-sync.md). Raised only for a change an older app could misread; new optional
 // fields keep it, since both sides ignore fields they don't know.
 enum WatchProtocol {
-    static let version = 2   // 2: the watch also sends .mark and .landing
+    static let version = 3   // 2: the watch also sends .mark and .landing; 3: .edit, strokes' `edited`
 }
 
 struct Snapshot: Codable, Equatable {
@@ -26,9 +26,10 @@ struct Snapshot: Codable, Equatable {
 
     struct Stroke: Codable, Equatable, Hashable {
         let id: String
-        let club: String
-        let mods: [String]
+        var club: String
+        var mods: [String]
         let t: Double   // milliseconds since 1970, as in the web app
+        var edited: Double? = nil   // when club or modifiers were last changed, on either device (ms)
         // Where the stroke was played from, when there was a GPS fix (accuracy in meters).
         var lat: Double? = nil
         var lng: Double? = nil
@@ -64,7 +65,7 @@ struct Snapshot: Codable, Equatable {
 // Something done on the watch, sent to the phone and kept until a snapshot shows the phone has it
 // (see applyWatchEvents in web/index.html).
 struct WatchEvent: Codable, Equatable {
-    enum Kind: String, Codable { case add, remove, finish, position, landing, mark }
+    enum Kind: String, Codable { case add, remove, finish, position, landing, mark, edit }
 
     struct Position: Codable, Equatable, Hashable {
         let lat: Double
@@ -79,7 +80,9 @@ struct WatchEvent: Codable, Equatable {
     var stroke: Snapshot.Stroke? = nil   // add
     var id: String? = nil                // remove, position, landing: the stroke
     var position: Position? = nil        // position: a late fix for the stroke; landing: where it landed; mark: the hole
-    var t: Double? = nil                 // remove, finish, landing, mark: when it was done (ms), judged against locks
+    var t: Double? = nil                 // remove, finish, landing, mark, edit: when it was done (ms), judged against locks
+    var club: String? = nil              // edit: the stroke's club now
+    var mods: [String]? = nil            // edit: the stroke's modifiers now (all of them, not a change)
 
     // True once the snapshot shows the phone has applied this event.
     func isConfirmed(by round: Snapshot.Round) -> Bool {
@@ -102,6 +105,12 @@ struct WatchEvent: Codable, Equatable {
             guard let id else { return true }
             return round.removed.contains(id) || round.locked.contains(hole) ||
                 (round.strokes[String(hole)] ?? []).contains { $0.id == id && $0.landing != nil }
+        case .edit:
+            // Applied or overtaken by a newer edit on either device, refused because the hole is locked, or the
+            // stroke is gone.
+            guard let id else { return true }
+            return round.removed.contains(id) || round.locked.contains(hole) ||
+                (round.strokes[String(hole)] ?? []).contains { $0.id == id && ($0.edited ?? -1) >= (t ?? 0) }
         case .mark:
             // Applied or overtaken by a newer mark, or refused because the hole is locked.
             let marked = round.holes.first { $0.number == hole }?.position

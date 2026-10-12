@@ -137,7 +137,7 @@ final class RoundStateTests: XCTestCase {
         let event = try XCTUnwrap(s.removeStroke(id: "p1", hole: 3, t: 42))
         let json = try XCTUnwrap(SyncClient.encode([event]))
         let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]]).first
-        XCTAssertEqual(decoded?["v"] as? Int, 2)
+        XCTAssertEqual(decoded?["v"] as? Int, WatchProtocol.version)
         XCTAssertEqual(decoded?["type"] as? String, "remove")
         XCTAssertEqual(decoded?["roundId"] as? String, "r")
         XCTAssertEqual(decoded?["hole"] as? Int, 3)
@@ -216,7 +216,7 @@ final class RoundStateTests: XCTestCase {
 
     func testASnapshotFromANewerPhoneAppIsIgnored() {
         var s = state(snapshotJSON(currentHole: 2))
-        XCTAssertEqual(s.receive(snapshotJSON: snapshotJSON(currentHole: 7, v: 3)), .newerVersion)
+        XCTAssertEqual(s.receive(snapshotJSON: snapshotJSON(currentHole: 7, v: WatchProtocol.version + 1)), .newerVersion)
         XCTAssertEqual(s.currentHole, 2, "the round already here keeps working")
     }
 
@@ -349,41 +349,84 @@ final class RoundStateTests: XCTestCase {
 
     func testTheFirstStrokeUsesThePhonesTeeClub() {
         let s = state(snapshotJSON(bag: ["Driver", "3W", "7i", "Putter"], tee: [1: "3W"]))
-        XCTAssertEqual(s.club(on: 1, picked: nil), "3W")
+        XCTAssertEqual(s.club(on: 1), "3W")
     }
 
     func testWithoutHistoryDriverOrSevenIronOnAParThree() {
         let s = state(snapshotJSON(bag: ["Driver", "7i", "Putter"], pars: [2: 3]))
-        XCTAssertEqual(s.club(on: 1, picked: nil), "Driver")
-        XCTAssertEqual(s.club(on: 2, picked: nil), "7i")
+        XCTAssertEqual(s.club(on: 1), "Driver")
+        XCTAssertEqual(s.club(on: 2), "7i")
     }
 
     func testNeverPutterOrAClubOutsideTheBagOffTheTee() {
         // The tee club is no longer in the bag, nor are Driver and 7i: the first club that isn't the putter.
         let s = state(snapshotJSON(bag: ["Putter", "Hybrid", "PW"], tee: [1: "3W"]))
-        XCTAssertEqual(s.club(on: 1, picked: nil), "Hybrid")
+        XCTAssertEqual(s.club(on: 1), "Hybrid")
     }
 
     func testThePuttOnTheLastHoleDoesNotCarryOver() {
         let s = state(snapshotJSON(currentHole: 2, strokes: [1: [stroke("a", t: 1, club: "Driver"), stroke("b", t: 2, club: "Putter")]]))
-        let picked = RoundState.PickedClub(club: "Putter", roundId: "r", hole: 1, t: 2)
-        XCTAssertEqual(s.club(on: 2, picked: picked), "Driver")
+        XCTAssertEqual(s.club(on: 2), "Driver")
     }
 
     func testOnAHoleWithStrokesTheLastClubPlayedSkippingPenalty() {
         let s = state(snapshotJSON(strokes: [1: [stroke("a", t: 1, club: "Driver"), stroke("b", t: 2, club: "Putter"), stroke("c", t: 3, club: "Penalty")]]))
-        XCTAssertEqual(s.club(on: 1, picked: nil), "Putter")
+        XCTAssertEqual(s.club(on: 1), "Putter")
     }
 
-    func testAClubPickedOnTheWatchWinsUntilAStrokeAfterIt() {
+    func testAClubChangedAfterLoggingIsSuggestedNext() {
         var s = state(snapshotJSON(strokes: [1: [stroke("a", t: 1, club: "Driver")]]))
-        let picked = RoundState.PickedClub(club: "7i", roundId: "r", hole: 1, t: 5)
-        XCTAssertEqual(s.club(on: 1, picked: picked), "7i")
-        // A putt logged later (here on the watch; the same goes for one from the phone) takes over.
-        _ = s.logStroke(id: "w1", club: "Putter", mods: [], hole: 1, t: 6, position: nil)
-        XCTAssertEqual(s.club(on: 1, picked: picked), "Putter")
-        // A pick for another round doesn't count.
-        let other = RoundState.PickedClub(club: "7i", roundId: "old", hole: 2, t: 9)
-        XCTAssertEqual(s.club(on: 2, picked: other), "Driver")
+        _ = s.editStroke(id: "a", hole: 1, club: "3W", mods: [], t: 5)
+        XCTAssertEqual(s.club(on: 1), "3W")
+    }
+
+    // MARK: Changing club and modifiers after logging (protocol 3)
+
+    func testAnEditChangesClubAndModifiersAsShown() {
+        var s = state(snapshotJSON(strokes: [1: [stroke("a", t: 1, club: "7i")]]))
+        let event = s.editStroke(id: "a", hole: 1, club: "8i", mods: [.rough, .chip], t: 10)
+        XCTAssertEqual(event?.type, .edit)
+        XCTAssertEqual(event?.mods, ["chip", "rough"])   // the phone's order
+        XCTAssertEqual(s.strokes(on: 1).first?.club, "8i")
+        XCTAssertEqual(s.strokes(on: 1).first?.mods, ["chip", "rough"])
+    }
+
+    func testAStrokeLoggedHereCanBeEditedBeforeThePhoneHasIt() {
+        var s = state(snapshotJSON())
+        _ = s.logStroke(id: "w1", club: "7i", mods: [], hole: 1, t: 1, position: nil)
+        XCTAssertNotNil(s.editStroke(id: "w1", hole: 1, club: "7i", mods: [.bunker], t: 2))
+        XCTAssertEqual(s.strokes(on: 1).first?.mods, ["bunker"])
+        XCTAssertEqual(s.outbox.map(\.type), [.add, .edit])
+    }
+
+    func testANewerEditReplacesTheWaitingOne() {
+        var s = state(snapshotJSON(strokes: [1: [stroke("a", t: 1, club: "7i")]]))
+        _ = s.editStroke(id: "a", hole: 1, club: "7i", mods: [.rough], t: 2)
+        _ = s.editStroke(id: "a", hole: 1, club: "7i", mods: [.rough, .pitch], t: 3)
+        XCTAssertEqual(s.outbox.filter { $0.type == .edit }.count, 1)
+        XCTAssertEqual(s.strokes(on: 1).first?.mods, ["pitch", "rough"])
+    }
+
+    func testNoEditOnALockedHoleOrOfAStrokeThatIsGone() {
+        var s = state(snapshotJSON(locked: [1], strokes: [1: [stroke("a", t: 1)], 2: [stroke("b", t: 2)]]))
+        XCTAssertNil(s.editStroke(id: "a", hole: 1, club: "8i", mods: [], t: 5))
+        XCTAssertNil(s.editStroke(id: "zzz", hole: 2, club: "8i", mods: [], t: 5))
+    }
+
+    func testAPenaltyStrokeTakesNoModifiers() {
+        var s = state(snapshotJSON(strokes: [1: [stroke("a", t: 1)]]))
+        XCTAssertEqual(s.editStroke(id: "a", hole: 1, club: "Penalty", mods: [.rough], t: 5)?.mods, [])
+    }
+
+    func testAnEditIsConfirmedWhenThePhoneShowsItOrANewerOne() {
+        var s = state(snapshotJSON(strokes: [1: [stroke("a", t: 1)]]))
+        _ = s.editStroke(id: "a", hole: 1, club: "8i", mods: [], t: 50)
+        var edited = stroke("a", t: 1, club: "8i")
+        edited["edited"] = 40.0
+        _ = s.receive(snapshotJSON: snapshotJSON(strokes: [1: [edited]]))
+        XCTAssertEqual(s.outbox.count, 1, "an older edit on the phone does not confirm this one")
+        edited["edited"] = 50.0
+        _ = s.receive(snapshotJSON: snapshotJSON(strokes: [1: [edited]]))
+        XCTAssertTrue(s.outbox.isEmpty)
     }
 }

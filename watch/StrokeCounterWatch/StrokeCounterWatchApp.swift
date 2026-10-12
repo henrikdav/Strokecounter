@@ -25,9 +25,9 @@ final class AppDelegate: NSObject, WKApplicationDelegate {
 }
 
 enum Route: Hashable {
-    case clubs
     case swingClubs
-    case modifiers
+    case editClub(strokeId: String, hole: Int)
+    case editModifiers(strokeId: String, hole: Int)
     case logged(Snapshot.Stroke, number: Int, hole: Int)
     case finish(hole: Int)
 }
@@ -76,12 +76,12 @@ struct RootView: View {
                 ActiveHoleView(hole: hole, path: $path)
                     .navigationDestination(for: Route.self) { route in
                         switch route {
-                        case .clubs:
-                            ClubPickerView(hole: hole, path: $path)
                         case .swingClubs:
                             SwingClubsView(hole: hole, path: $path)
-                        case .modifiers:
-                            ModifiersView(path: $path)
+                        case let .editClub(strokeId, hole):
+                            ClubPickerView(strokeId: strokeId, hole: hole, path: $path)
+                        case let .editModifiers(strokeId, hole):
+                            ModifiersView(strokeId: strokeId, hole: hole, path: $path)
                         case let .logged(stroke, number, hole):
                             StrokeLoggedView(stroke: stroke, number: number, hole: hole, path: $path)
                         case let .finish(hole):

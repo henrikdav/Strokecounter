@@ -24,9 +24,9 @@ test(async () => {
     snap.round.holes.length === 9 && snap.round.holes[0].par === 4 && snap.round.strokes['1'].length === 2 && snap.round.strokes['1'][0].id === 'p1' && Array.isArray(snap.bag) && !!snap.club);
 
   // Protocol version
-  ok('the snapshot carries the protocol version', snap.v === 2);
+  ok('the snapshot carries the protocol version', snap.v === 3);
   ok('events from a newer watch app are not applied and stay queued (false)',
-    apply([ev({ v: 1, type: 'add', stroke: { id: 'n1', club: '9i', mods: [], t: 1500 } }), ev({ v: 3, type: 'add', stroke: { id: 'n2', club: '9i', mods: [], t: 1600 } })]) === false
+    apply([ev({ v: 1, type: 'add', stroke: { id: 'n1', club: '9i', mods: [], t: 1500 } }), ev({ v: 4, type: 'add', stroke: { id: 'n2', club: '9i', mods: [], t: 1600 } })]) === false
     && !hole(1).some(s => s.id === 'n1' || s.id === 'n2'));
   ok('the user is told to update the iPhone app', /Update the iPhone app/.test(app.d.getElementById('toast').textContent));
   ok('version 1 events are applied', apply([ev({ v: 1, type: 'add', stroke: { id: 'n1', club: '9i', mods: [], t: 1500 } })]) === true && hole(1).some(s => s.id === 'n1'));
@@ -133,6 +133,27 @@ test(async () => {
   ok('a refused stroke stays refused', !hole(5).some(s => s.id === 'L1'));
   app.E('getRound().currentHole = 8; doneHole();');
   ok('Done on the phone records the lock time', Number.isFinite(round().lockedAt['8']));
+
+  // Editing club and modifiers after logging (protocol 3)
+  apply([ev({ hole: 5, type: 'edit', id: 'L2', club: '9i', mods: ['rough', 'chip', 'bogus'], t: Date.now() })]);
+  let edited = hole(5).find(s => s.id === 'L2');
+  ok('an edit sets the club and modifiers', edited.club === '9i' && edited.rough && edited.chip && !edited.bogus && Number.isFinite(edited.editedAt));
+  apply([ev({ hole: 5, type: 'edit', id: 'L2', club: 'PW', mods: [], t: edited.editedAt - 1000 })]);
+  edited = hole(5).find(s => s.id === 'L2');
+  ok('an older edit arriving later is ignored', edited.club === '9i' && edited.rough);
+  apply([ev({ hole: 5, type: 'edit', id: 'L2', club: 'PW', mods: ['bunker'], t: edited.editedAt + 1000 })]);
+  edited = hole(5).find(s => s.id === 'L2');
+  ok('a newer edit replaces the modifiers, not adds to them', edited.club === 'PW' && edited.bunker && !edited.rough && !edited.chip);
+  apply([ev({ hole: 5, type: 'edit', id: 'L2', club: 'Laser', mods: [], t: edited.editedAt + 2000 })]);
+  ok('an unknown club is ignored', hole(5).find(s => s.id === 'L2').club === 'PW');
+  apply([ev({ hole: 5, type: 'edit', id: 'L2', club: 'Penalty', mods: ['rough'], t: edited.editedAt + 3000 })]);
+  edited = hole(5).find(s => s.id === 'L2');
+  ok('a penalty stroke takes no modifiers', edited.club === 'Penalty' && !edited.rough && !edited.bunker);
+  snap = await lastSnapshot();
+  ok('the snapshot carries when a stroke was edited', snap.round.strokes['5'].find(x => x.id === 'L2').edited === edited.editedAt);
+  app.E('getRound().currentHole = 5; doneHole();');
+  apply([ev({ hole: 5, type: 'edit', id: 'L2', club: '7i', mods: [], t: Date.now() + 1000 })]);
+  ok('an edit after the hole was locked is refused', hole(5).find(s => s.id === 'L2').club === 'Penalty');
 
   // Finished rounds
   app.E("view = 'card'; render(); finishRound();");

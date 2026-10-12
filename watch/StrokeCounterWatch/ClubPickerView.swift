@@ -1,29 +1,34 @@
 import SwiftUI
 
-// Screen 2: the bag from the phone. A tap selects the club for the next stroke and goes back to the hole;
-// nothing is logged here (like the Modifiers screen).
+// Changes the club of a stroke just logged (opened from its pill on the confirmation screen): the bag from the
+// phone, the stroke's club picked and in view. A tap sets it and goes back to the confirmation.
 struct ClubPickerView: View {
     @EnvironmentObject private var store: WatchStore
+    let strokeId: String
     let hole: Int
     @Binding var path: [Route]
 
     var body: some View {
-        let current = store.club(on: hole)
+        let stroke = store.strokes(on: hole).first { $0.id == strokeId }
+        let current = stroke?.club ?? ""
         ScrollViewReader { proxy in
             List {
                 Section {
                     ForEach(store.bag, id: \.self) { club in
                         Button {
-                            store.selectClub(club, hole: hole)
-                            path = []
+                            if let stroke, club != stroke.club {
+                                store.editStroke(strokeId, hole: hole, club: club,
+                                                 mods: Set(stroke.mods.compactMap(Modifier.init(rawValue:))))
+                            }
+                            if !path.isEmpty { path.removeLast() }
                         } label: {
                             HStack {
                                 Text(club)
                                     .font(.system(size: 15, weight: club == current ? .bold : .regular))
                                 Spacer()
                                 if club == current {
-                                    Text("SELECTED")
-                                        .font(.system(size: 9, weight: .semibold))
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 12, weight: .bold))
                                         .foregroundStyle(accent)
                                 }
                             }
@@ -48,13 +53,13 @@ struct ClubPickerView: View {
                 proxy.scrollTo(current, anchor: .center)
             }
         }
-        .navigationTitle("My bag")
+        .navigationTitle("Club")
     }
 }
 
 #if DEBUG
-#Preview("Bag") {
-    NavigationStack { ClubPickerView(hole: 3, path: .constant([])) }
+#Preview("Club") {
+    NavigationStack { ClubPickerView(strokeId: "p2", hole: 3, path: .constant([])) }
         .environmentObject(PreviewData.store())
 }
 #endif

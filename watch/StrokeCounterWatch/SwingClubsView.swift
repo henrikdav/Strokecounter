@@ -1,9 +1,9 @@
 import SwiftUI
 import WatchKit
 
-// Shown when the wrist is raised within a minute of a swing (swing detection): the modifiers in one row, then the
-// bag with the suggested club picked and in view. Unlike the Bag screen, a tap on a club logs the stroke at once,
-// with the swing's position. "Not a shot" (a practice swing) and Back log nothing.
+// Shown when the wrist is raised within a minute of a swing (swing detection): the bag with the suggested club
+// picked and in view. A tap on a club logs the stroke at once, with the swing's position; lie and shot are set on
+// the confirmation that follows, as after +1. "Not a shot" (a practice swing) and Back log nothing.
 struct SwingClubsView: View {
     @EnvironmentObject private var store: WatchStore
     let hole: Int
@@ -13,13 +13,6 @@ struct SwingClubsView: View {
         let suggested = store.club(on: hole)
         ScrollViewReader { proxy in
             List {
-                Section {
-                    HStack(spacing: 4) {
-                        ForEach(Modifier.allCases, id: \.self) { mod in modifier(mod) }
-                    }
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 2))
-                }
                 Section {
                     ForEach(store.bag, id: \.self) { club in
                         Button {
@@ -64,27 +57,6 @@ struct SwingClubsView: View {
         .navigationTitle("Swing")
     }
 
-    // A compact toggle, armed for the stroke like on the Modifiers screen.
-    private func modifier(_ mod: Modifier) -> some View {
-        let on = store.armedMods.contains(mod)
-        return Button {
-            if on { store.armedMods.remove(mod) } else { store.armedMods.insert(mod) }
-        } label: {
-            Text(mod.label)
-                .font(.system(size: 10, weight: on ? .bold : .regular))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .foregroundStyle(on ? accent : .primary)
-                .frame(maxWidth: .infinity, minHeight: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(on ? accent.opacity(0.18) : tile)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? accent : .clear))
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
-    }
 }
 
 #if DEBUG

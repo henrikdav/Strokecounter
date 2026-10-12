@@ -21,28 +21,15 @@ struct RoundState: Equatable {
     // The club selected on the phone, used when the bag is empty.
     var phoneClub: String? { snapshot?.club }
 
-    // A club picked on the watch's bag screen: for which hole of which round, and when (ms).
-    struct PickedClub: Codable, Equatable {
-        let club: String
-        let roundId: String?
-        let hole: Int
-        let t: Double
-    }
-
-    // The club preselected for the next stroke on a hole (#6):
-    // - a club picked on the watch for this hole wins, until a stroke is logged after it (on either device);
-    // - otherwise, once the hole has strokes, the last club played on it (Penalty skipped), so putts follow putts;
+    // The club a stroke on the hole is logged with (#6); the player changes it afterwards if it was another:
+    // - once the hole has strokes, the last club played on it (Penalty skipped), so putts follow putts;
     // - for the first stroke: the phone's tee club for the hole (from history), else Driver, or 7i on a par 3.
     // Putter and Penalty are never suggested off the tee, and only clubs in the bag are.
-    func club(on hole: Int, picked: PickedClub?) -> String {
-        let played = strokes(on: hole)
-        if let picked, picked.roundId == round?.id, picked.hole == hole, picked.t >= (played.map(\.t).max() ?? 0) {
-            return picked.club
-        }
-        if let last = played.last(where: { $0.club != "Penalty" }) { return last.club }
+    func club(on hole: Int) -> String {
+        if let last = strokes(on: hole).last(where: { $0.club != "Penalty" }) { return last.club }
         let tee = bag.filter { $0 != "Putter" && $0 != "Penalty" }
         let wanted = [self.hole(hole)?.teeClub, self.hole(hole)?.par == 3 ? "7i" : "Driver"].compactMap { $0 }
-        return wanted.first(where: tee.contains) ?? tee.first ?? picked?.club ?? phoneClub ?? "Driver"
+        return wanted.first(where: tee.contains) ?? tee.first ?? phoneClub ?? "Driver"
     }
 
     // The round is over when it is finished on the phone's scorecard. Only the phone finishes (and unlocks) a
@@ -89,7 +76,7 @@ struct RoundState: Equatable {
     }
 
     // The phone's strokes for the hole, minus strokes removed here, plus strokes added here, with landings locked
-    // here, in playing order.
+    // and club and modifiers changed here, in playing order.
     func strokes(on hole: Int) -> [Snapshot.Stroke] {
         guard let round else { return [] }
         let mine = outbox.filter { $0.roundId == round.id && $0.hole == hole }
@@ -102,6 +89,12 @@ struct RoundState: Equatable {
         }
         for event in mine where event.type == .landing {
             if let i = list.firstIndex(where: { $0.id == event.id }), list[i].landing == nil { list[i].landing = event.position }
+        }
+        for event in mine where event.type == .edit {
+            if let i = list.firstIndex(where: { $0.id == event.id }), let club = event.club {
+                list[i].club = club
+                list[i].mods = event.mods ?? []
+            }
         }
         return list.sorted { $0.t < $1.t }
     }
@@ -134,6 +127,16 @@ struct RoundState: Equatable {
         let stroke = Snapshot.Stroke(id: id, club: club, mods: Modifier.allCases.filter(mods.contains).map(\.rawValue),
                                      t: t, lat: position?.lat, lng: position?.lng, acc: position?.acc)
         return queue(WatchEvent(type: .add, roundId: round.id, hole: hole, stroke: stroke))
+    }
+
+    // Changes a logged stroke's club and modifiers (the whole set, not a change to it), like Save in the phone's
+    // edit-stroke sheet. Not on a locked hole. An earlier edit of the same stroke still waiting here is replaced,
+    // since this one says everything it did.
+    mutating func editStroke(id: String, hole: Int, club: String, mods: Set<Modifier>, t: Double) -> WatchEvent? {
+        guard let round, !isLocked(hole), strokes(on: hole).contains(where: { $0.id == id }) else { return nil }
+        outbox.removeAll { $0.type == .edit && $0.roundId == round.id && $0.id == id }
+        let list = club == "Penalty" ? [] : Modifier.allCases.filter(mods.contains).map(\.rawValue)
+        return queue(WatchEvent(type: .edit, roundId: round.id, hole: hole, id: id, t: t, club: club, mods: list))
     }
 
     mutating func removeStroke(id: String, hole: Int, t: Double) -> WatchEvent? {
