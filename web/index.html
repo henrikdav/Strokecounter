@@ -7,20 +7,20 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Strokes">
-<meta name="theme-color" content="#EDF0E6">
+<meta name="theme-color" content="#F6F2EA">
 <title>Stroke Counter</title>
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="apple-touch-icon.png">
 <style>
   :root {
-    --paper: #EDF0E6;
-    --white: #FBFCF8;
-    --ink: #17241B;
-    --mute: #5D6B60;
-    --line: #CBD2C0;
-    --fairway: #1E5233;
-    --fairway-deep: #143A24;
-    --sand: #E3D5AC;
+    --paper: #F6F2EA;
+    --white: #FFFDF8;
+    --ink: #10302E;
+    --mute: #5C6B69;
+    --line: #E2D9CA;
+    --fairway: #053D3A;   /* Ink Teak */
+    --fairway-deep: #032B29;
+    --sand: #FFE2B8;   /* Warm Sand */
     --flag: #C4372D;
     --under: #24763F;
     --under-tint: #E3EEE3;   /* backgrounds of net badges on the home screen */
@@ -243,7 +243,7 @@
             color: var(--flag); font-weight: 700; margin-top: 4px; }
 
   /* Bottom sheet */
-  .backdrop { position: fixed; inset: 0; background: rgba(23, 36, 27, .45); z-index: 10; }
+  .backdrop { position: fixed; inset: 0; background: rgba(16, 48, 46, .45); z-index: 10; }
   .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; max-width: 480px; margin: 0 auto; background: var(--white);
            border-radius: 22px 22px 0 0; padding: 18px 16px calc(14px + var(--safe-b)); max-height: 88%; overflow-y: auto;
            animation: rise .18s ease-out; }
@@ -315,7 +315,7 @@
   .extra { border: 2px solid var(--fairway); border-radius: 999px; padding: 0 10px; font-size: 15px; color: var(--fairway-deep); }
   .pills { display: flex; align-items: center; margin: 0 14px 6px; padding: 3px; border-radius: 999px; background: var(--paper); border: 2px solid var(--line); }
   .pill { flex: 1; min-height: 38px; margin: 0; padding: 0 10px; border: 0; border-radius: 999px; background: none; font-weight: 700; color: var(--mute); }
-  .pill.on { background: var(--sand); color: var(--ink); box-shadow: 0 0 3px rgba(23, 36, 27, .18); }
+  .pill.on { background: var(--sand); color: var(--ink); box-shadow: 0 0 3px rgba(16, 48, 46, .18); }
   .hcp-line { margin: 0 0 6px; }
   .inline-btn { background: none; border: 0; padding: 6px 0; color: var(--fairway); font-weight: 700;
                 text-decoration: underline; text-underline-offset: 3px; }
@@ -362,7 +362,7 @@
 
   /* Pull-to-refresh indicator: slides down from the top while pulling, spins while updating. */
   #ptr { position: fixed; top: calc(var(--safe-t) - 44px); left: 50%; z-index: 40; display: flex; align-items: center; gap: 8px;
-         padding: 6px; border-radius: 999px; background: var(--white); box-shadow: 0 2px 8px rgba(23, 36, 27, .2);
+         padding: 6px; border-radius: 999px; background: var(--white); box-shadow: 0 2px 8px rgba(16, 48, 46, .2);
          transform: translate(-50%, 0); pointer-events: none; opacity: 0; font-weight: 700; font-size: 14px; color: var(--ink); }
   #ptr.settle { transition: transform .2s ease-out, opacity .2s; }
   #ptr .ptr-icon { width: 24px; height: 24px; display: grid; place-items: center; color: var(--mute); }
