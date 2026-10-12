@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Swing detection step 1: summarises a motion recording from the watch (watch/StrokeCounterWatch/SwingRecorder.swift).
+"""Summarises a motion recording from the watch (watch/StrokeCounterWatch/SwingRecorder.swift).
 
 Usage: tools/swing/inspect.py <recording folder with motion.bin and events.jsonl>
 
 Prints the header, how long and how evenly it recorded, and for every stroke logged on the watch the strongest
-rotation and acceleration in the 30 s before it (a shot should show up there as a clear peak).
+rotation and acceleration in the 30 s before it (a shot should show up there as a clear peak), how it was logged
+and the swing the watch found before it. Ends with what the watch did with the swings it found.
 """
 import json
 import math
@@ -37,8 +38,13 @@ def main(folder):
     removed = {e['id'] for e in events if e['type'] == 'remove'}
     strokes = [e for e in events if e['type'] == 'stroke' and e['id'] not in removed]
     print(f"{len(strokes)} strokes, {sum(e['type'] == 'fix' for e in events)} GPS fixes")
+    swings = [e for e in events if e['type'] == 'swing']
     for s in strokes:
         at = s['t'] / 1000 - t0
+        how = 'swing list' if s.get('fromSwingList') else '+1'
+        found = [w for w in swings if 0 <= (s['t'] - w['t']) / 1000 <= 60]
+        swing_text = f"swing {(s['t'] - found[-1]['t']) / 1000:4.1f} s before" if found else 'no swing found'
+        position = ', swing position' if s.get('swingPosition') else ''
         window = [x for x in samples if at - 30 <= x[0] <= at]
         if not window:
             print(f"  {at:8.1f} s  hole {s['hole']:>2} {s['club']:<8} no samples before it")
@@ -46,7 +52,11 @@ def main(folder):
         rot = max(window, key=lambda x: math.hypot(x[4], x[5], x[6]))
         acc = max(math.hypot(x[1], x[2], x[3]) for x in window)
         print(f"  {at:8.1f} s  hole {s['hole']:>2} {s['club']:<8} peak rotation {math.hypot(rot[4], rot[5], rot[6]):5.1f} rad/s "
-              f"{at - rot[0]:5.1f} s before, peak acceleration {acc:4.1f} g")
+              f"{at - rot[0]:5.1f} s before, peak acceleration {acc:4.1f} g  [{how}, {swing_text}{position}]")
+    if swings:
+        count = lambda kind: sum(e['type'] == kind for e in events)
+        print(f"{len(swings)} swings found; club list shown {count('swing-list')} times, "
+              f"{sum(1 for s in strokes if s.get('fromSwingList'))} strokes logged from it, {count('not-a-shot')} 'Not a shot'")
 
 
 if __name__ == '__main__':

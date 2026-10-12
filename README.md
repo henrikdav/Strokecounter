@@ -155,8 +155,11 @@ blocks the screen in automated runs.
   `applyWatchEvents()` in `index.html` merges them by stroke id. Applying an event twice changes nothing, removed
   strokes are remembered, and changes made after a hole was locked or the round was finished are refused.
 
-- **Swing recordings (test build):** while a round's workout runs, the watch records its motion at 100 Hz to
-  learn to recognise swings, and sends the recording to the phone when the workout ends
+- **Swing detection:** while a round's workout runs, the watch finds full swings in its motion
+  (`SwingDetector.swift`). A stroke logged within a minute of a swing gets the swing's position, and raising the
+  wrist in that minute shows the club list: a tap logs the stroke. Putts and short chips are not found.
+- **Swing recordings (test build):** the watch also records its motion at 100 Hz, what it found and what was
+  logged, and sends the recording to the phone when the workout ends
   (`Documents/SwingRecordings`). Copy it to the Mac with `xcrun devicectl device copy from … --domain-type
   appDataContainer --domain-identifier com.henrikdav.StrokeCounter --source Documents/SwingRecordings/<name>/motion.bin`
   (and `events.jsonl`), then `tools/swing/inspect.py <folder>`.
