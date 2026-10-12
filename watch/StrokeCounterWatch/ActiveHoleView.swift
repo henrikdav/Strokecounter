@@ -1,8 +1,8 @@
 import SwiftUI
 import WatchKit
 
-// Screen 1: the hole being played. The wide "+1 STROKE" button logs a stroke with the club shown inside it (the
-// suggested one); club and modifiers are set afterwards, on the screen that confirms the stroke. Below it, the
+// Screen 1: the hole being played. The wide "+1 STROKE" button logs a stroke with the suggested club, which is not
+// shown here since it may be wrong; club and modifiers are set afterwards, on the screen that confirms the stroke. Below it, the
 // hole's last stroke: a tap opens that screen again, to change it. Above it,
 // the distance of the current shot, live from GPS; a tap locks it as where the shot landed (Stop on the phone).
 // Undo (top left) removes the hole's last stroke; finish (top right, or a swipe up) ends the hole.
@@ -44,23 +44,16 @@ struct ActiveHoleView: View {
                         path = [.logged(stroke, number: strokes.count + 1, hole: hole)]
                     }
                 } label: {
-                    // Shaped like the phone app's "+1 stroke" button, with what the tap will log inside it.
-                    VStack(spacing: 1) {
-                        Text("+1 STROKE")
-                            .font(.system(size: 18, weight: .heavy))
-                        Text(club)
-                            .font(.system(size: 13, weight: .bold))
-                            .opacity(0.75)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                    .foregroundStyle(accentInk)
+                    // Shaped like the phone app's "+1 stroke" button.
+                    Text("+1 STROKE")
+                        .font(.system(size: 20, weight: .heavy))
+                        .foregroundStyle(accentInk)
                     .padding(.horizontal, 8)
                     .frame(maxWidth: .infinity, minHeight: 70)
                     .background(RoundedRectangle(cornerRadius: 18).fill(accent))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Log stroke \(strokes.count + 1): \(club)")
+                .accessibilityLabel("Log stroke \(strokes.count + 1)")
 
                 if let last = strokes.last {
                     lastStroke(last, number: strokes.count)
