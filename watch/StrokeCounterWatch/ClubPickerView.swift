@@ -1,7 +1,7 @@
 import SwiftUI
 
-// Changes the club of a stroke just logged (opened from its pill on the confirmation screen): the bag from the
-// phone, the stroke's club picked and in view. A tap sets it and goes back to the confirmation.
+// Changes the club of a stroke just logged (opened from its pill on the confirmation screen): the club list
+// (ClubListView) with the stroke's club marked. A tap sets it and goes back to the confirmation; Cancel keeps it.
 struct ClubPickerView: View {
     @EnvironmentObject private var store: WatchStore
     let strokeId: String
@@ -9,51 +9,22 @@ struct ClubPickerView: View {
     @Binding var path: [Route]
 
     var body: some View {
-        let stroke = store.strokes(on: hole).first { $0.id == strokeId }
-        let current = stroke?.club ?? ""
-        ScrollViewReader { proxy in
-            List {
-                Section {
-                    ForEach(store.bag, id: \.self) { club in
-                        Button {
-                            if let stroke, club != stroke.club {
-                                store.editStroke(strokeId, hole: hole, club: club,
-                                                 mods: Set(stroke.mods.compactMap(Modifier.init(rawValue:))))
-                            }
-                            if !path.isEmpty { path.removeLast() }
-                        } label: {
-                            HStack {
-                                Text(club)
-                                    .font(.system(size: 15, weight: club == current ? .bold : .regular))
-                                Spacer()
-                                if club == current {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundStyle(accent)
-                                }
-                            }
-                            .padding(.vertical, -4)
-                        }
-                        .listRowBackground(
-                            RoundedRectangle(cornerRadius: 9)
-                                .fill(club == current ? accent.opacity(0.18) : tile)
-                                .overlay(RoundedRectangle(cornerRadius: 9).stroke(club == current ? accent : .clear))
-                        )
-                        .id(club)
-                    }
-                } header: {
-                    Text("\(store.bag.count) clubs")
-                }
+        let strokes = store.strokes(on: hole)
+        let index = strokes.firstIndex { $0.id == strokeId }
+        let stroke = index.map { strokes[$0] }
+        ClubListView(clubs: store.bag, start: stroke?.club ?? "", bottomLabel: "Cancel") { club in
+            if let stroke, club != stroke.club {
+                store.editStroke(strokeId, hole: hole, club: club, mods: Set(stroke.mods.compactMap(Modifier.init(rawValue:))))
             }
-            // Compact rows, as in the mockup, so more of the bag fits between Crown turns.
-            .environment(\.defaultMinListRowHeight, 34)
-            .task {
-                // Wait one layout pass; scrolling before the list has its rows does nothing.
-                try? await Task.sleep(for: .milliseconds(50))
-                proxy.scrollTo(current, anchor: .center)
-            }
+            back()
+        } onBottom: {
+            back()
         }
-        .navigationTitle("Club")
+        .navigationTitle(index.map { "Stroke \($0 + 1)" } ?? "Club")
+    }
+
+    private func back() {
+        if !path.isEmpty { path.removeLast() }
     }
 }
 
