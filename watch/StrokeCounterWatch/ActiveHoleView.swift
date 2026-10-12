@@ -3,8 +3,8 @@ import WatchKit
 
 // Screen 1: the hole being played. The wide "+1 STROKE" button logs a stroke with the suggested club, which is not
 // shown here since it may be wrong; club and modifiers are set afterwards, on the screen that confirms the stroke.
-// Below it, the hole's last stroke: a tap opens that screen again, to change it. Above it, the distance of the
-// current shot, live from GPS; a tap locks it as where the shot landed (Stop on the phone).
+// Under the stroke count, the hole's last stroke: a tap opens that screen again, to change it. Above the button,
+// the distance of the current shot, live from GPS; a tap locks it as where the shot landed (Stop on the phone).
 // Undo (top left) removes the hole's last stroke; finish (top right, or a swipe up) ends the hole.
 // A hole locked on the phone shows a notice instead, and only finish works; a round finished on the phone is
 // read-only with nothing to do. Both update live with the phone.
@@ -33,6 +33,10 @@ struct ActiveHoleView: View {
             if locked {
                 lockedNotice(finished: finished)
             } else {
+                if let last = strokes.last {
+                    lastStroke(last, number: strokes.count)
+                }
+
                 // Re-read every few seconds as well, so a fix that has gone stale clears the distance.
                 TimelineView(.periodic(from: .now, by: 5)) { _ in
                     distanceLine(store.shotDistance(on: hole))
@@ -54,10 +58,6 @@ struct ActiveHoleView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Log stroke \(strokes.count + 1)")
-
-                if let last = strokes.last {
-                    lastStroke(last, number: strokes.count)
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
