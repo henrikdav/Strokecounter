@@ -10,11 +10,22 @@ final class RoundSession {
     var onLateFix: ((String, String, Int, WatchEvent.Position) -> Void)?
     // Every new fix, for what is shown live (the distance of the current shot).
     var onFix: ((CLLocation) -> Void)?
-    // A swing recording finished (swing detection step 1): its folder, to send to the phone.
+    // A swing recording finished: its folder, to send to the phone.
     var onRecording: ((URL) -> Void)?
+    // A swing was found, or the one kept was used or dropped.
+    var onSwingChange: (() -> Void)?
 
-    // Records motion while the workout runs (SwingRecorder); strokes logged here are noted in it.
+    // Follows the motion while the workout runs, finds swings and records the data (SwingRecorder).
     let recorder = SwingRecorder()
+
+    // The last swing found and where it was played from. For a minute it gives the next stroke logged its position,
+    // and raising the wrist shows the club list (WatchStore). Practice swings each replace it, so the last one counts.
+    struct Swing {
+        let time: Date
+        var position: WatchEvent.Position?
+    }
+    private(set) var lastSwing: Swing?
+    static let swingWindow: TimeInterval = 60
 
     private let location = LocationTracker()
     private let workout = RoundWorkout()
@@ -34,6 +45,7 @@ final class RoundSession {
     init() {
         location.onFix = { [weak self] fix in
             self?.lateFix(fix)
+            self?.swingFix(fix)
             self?.recorder.noteFix(fix)
             self?.onFix?(fix)
         }
@@ -44,6 +56,7 @@ final class RoundSession {
             self.updateRecording()
         }
         recorder.onFinished = { [weak self] folder in self?.onRecording?(folder) }
+        recorder.onSwing = { [weak self] time, swing in self?.swingFound(at: time, swing) }
     }
 
     // The latest fix if it is recent enough for a new stroke (LocationTracker.maxAge), else nil.
@@ -110,13 +123,42 @@ final class RoundSession {
         awaitingFix = nil
     }
 
-    // Motion is recorded exactly while the round's workout runs.
+    // Motion is followed exactly while the round's workout runs.
     private func updateRecording() {
         if workout.isRunning, let id = workout.roundId {
-            if !recorder.isRecording { recorder.start(roundId: id) }
-        } else if recorder.isRecording {
+            if !recorder.isRunning { recorder.start(roundId: id) }
+        } else if recorder.isRunning {
             recorder.stop()
+            clearSwing()
         }
+    }
+
+    // MARK: Swings
+
+    // The swing found in the last minute, if any.
+    var recentSwing: Swing? {
+        guard let swing = lastSwing, -swing.time.timeIntervalSinceNow <= Self.swingWindow else { return nil }
+        return swing
+    }
+
+    // The swing is used (a stroke was logged) or was not a shot.
+    func clearSwing() {
+        guard lastSwing != nil else { return }
+        lastSwing = nil
+        onSwingChange?()
+    }
+
+    private func swingFound(at time: Date, _ swing: SwingDetector.Swing) {
+        // The player stands still at the ball, so the latest fix (no older than 30 s) is where the swing was.
+        lastSwing = Swing(time: time, position: freshFix)
+        recorder.noteSwing(at: time, swing, position: lastSwing?.position)
+        onSwingChange?()
+    }
+
+    // A swing found without a fix gets the first one within 10 s.
+    private func swingFix(_ fix: CLLocation) {
+        guard let swing = lastSwing, swing.position == nil, fix.timestamp.timeIntervalSince(swing.time) <= 10 else { return }
+        lastSwing?.position = WatchEvent.Position(lat: fix.coordinate.latitude, lng: fix.coordinate.longitude, acc: fix.horizontalAccuracy)
     }
 
     private func updateLocation() {

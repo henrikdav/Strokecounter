@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, WKApplicationDelegate {
 
 enum Route: Hashable {
     case clubs
+    case swingClubs
     case modifiers
     case logged(Snapshot.Stroke, number: Int, hole: Int)
     case finish(hole: Int)
@@ -42,12 +43,31 @@ struct RootView: View {
 
     var body: some View {
         content
-            .onChange(of: scenePhase) { _, phase in store.setAppActive(phase != .background) }
+            .onChange(of: scenePhase) { _, phase in
+                store.setAppActive(phase != .background)
+                if phase == .active { showSwingClubs() }
+            }
+            // A swing found while the screen is up (the wrist was not lowered) shows the list at once.
+            .onChange(of: store.swingTime) { _, _ in if scenePhase == .active { showSwingClubs() } }
             .alert("Update the watch app", isPresented: Binding(get: { store.phoneIsNewer }, set: { store.phoneIsNewer = $0 })) {
                 Button("OK") {}
             } message: {
                 Text("The iPhone app is newer. Install the latest Stroke Counter on the watch to keep syncing.")
             }
+    }
+
+    // Raising the wrist within a minute of a swing shows the club list to log it; after that, or once it is used,
+    // the list goes and the hole screen shows as usual.
+    private func showSwingClubs() {
+        guard let hole = store.currentHole else { return }
+        if store.swingWaiting(on: hole) {
+            if path.last != .swingClubs {
+                path = [.swingClubs]
+                store.swingListShown()
+            }
+        } else if path.last == .swingClubs {
+            path = []
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -58,6 +78,8 @@ struct RootView: View {
                         switch route {
                         case .clubs:
                             ClubPickerView(hole: hole, path: $path)
+                        case .swingClubs:
+                            SwingClubsView(hole: hole, path: $path)
                         case .modifiers:
                             ModifiersView(path: $path)
                         case let .logged(stroke, number, hole):

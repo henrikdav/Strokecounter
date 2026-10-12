@@ -14,6 +14,8 @@ final class WatchStore: ObservableObject {
     @Published var phoneIsNewer = false
     // The latest GPS fix, published so the shot distance updates while walking.
     @Published private(set) var lastFix: CLLocation?
+    // When the last swing was found (RoundSession.lastSwing), so the screens can show the club list after it.
+    @Published private(set) var swingTime: Date?
 
     private let sync = SyncClient()
     private let session = RoundSession()
@@ -32,6 +34,7 @@ final class WatchStore: ObservableObject {
         }
         session.onFix = { [weak self] fix in self?.lastFix = fix }
         session.onRecording = { [weak self] folder in self?.sync.sendRecording(folder) }
+        session.onSwingChange = { [weak self] in self?.swingTime = self?.session.lastSwing?.time }
         sync.activeRecording = { [weak self] in self?.session.recorder.currentFolder }
         session.roundChanged(id: state.round?.id, finished: state.isRoundFinished)
         sync.activate()
@@ -70,17 +73,40 @@ final class WatchStore: ObservableObject {
     }
 
     // Logs a stroke with the club and the armed modifiers, which then reset like on the phone. Never waits for
-    // GPS: it takes the latest fix if it is recent, otherwise logs now and fills the position in shortly.
+    // GPS. The position is where the last swing was played, when one was found in the last minute (the player may
+    // have walked on since); else the latest fix if it is recent; else it is filled in shortly. A swing is used
+    // for one stroke only. fromSwingList: logged from the club list shown after a swing.
     @discardableResult
-    func logStroke(club: String, hole: Int) -> Snapshot.Stroke? {
-        let fix = session.freshFix
+    func logStroke(club: String, hole: Int, fromSwingList: Bool = false) -> Snapshot.Stroke? {
+        let swingPosition = session.recentSwing?.position
+        let fix = swingPosition ?? session.freshFix
         let id = UUID().uuidString.lowercased()
         guard let event = change({ $0.logStroke(id: id, club: club, mods: armedMods, hole: hole, t: Self.now, position: fix) }),
               let roundId = state.round?.id else { return nil }
         if fix == nil { session.awaitFix(strokeId: id, roundId: roundId, hole: hole) } else { session.stopAwaitingFix() }
         armedMods = []
-        if let stroke = event.stroke { session.recorder.noteStroke(stroke, hole: hole) }
+        session.clearSwing()
+        if let stroke = event.stroke {
+            session.recorder.noteStroke(stroke, hole: hole, fromSwingList: fromSwingList, swingPosition: swingPosition != nil)
+        }
         return event.stroke
+    }
+
+    // MARK: Swings
+
+    // The club list is shown when the wrist is raised within a minute of a swing, on a hole that takes strokes.
+    func swingWaiting(on hole: Int) -> Bool {
+        swingTime != nil && session.recentSwing != nil && !state.isRoundFinished && !state.isLocked(hole)
+    }
+
+    func swingListShown() {
+        session.recorder.note("swing-list")
+    }
+
+    // The player says the swing was not a shot (a practice swing): nothing is logged, and the list goes.
+    func dismissSwing() {
+        session.recorder.note("not-a-shot")
+        session.clearSwing()
     }
 
     func removeStroke(_ id: String, hole: Int) {
