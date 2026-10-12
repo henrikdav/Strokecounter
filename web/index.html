@@ -131,7 +131,7 @@
   .actions { display: flex; gap: 10px; }
   .done { width: 88px; min-height: 76px; border-radius: 20px; border: 2px solid var(--fairway); background: var(--white);
           font-size: 20px; font-weight: 800; color: var(--fairway-deep); }
-  .add { flex: 1; min-height: 76px; border-radius: 20px; border: 0; background: var(--fairway); color: var(--white);
+  .add { flex: 1; min-height: 76px; border-radius: 20px; border: 0; background: var(--fairway); color: var(--sand);
          font-size: clamp(22px, 7.4vw, 30px); font-weight: 800; white-space: nowrap; box-shadow: 0 4px 0 var(--fairway-deep); }
   .add:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--fairway-deep); }
 
@@ -169,7 +169,7 @@
   .unlock-label { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
                   font-size: 20px; font-weight: 800; color: var(--fairway-deep); letter-spacing: .02em; }
   .unlock-knob { position: relative; z-index: 1; display: grid; place-items: center; width: 64px; height: 56px;
-                 border-radius: 999px; background: var(--fairway); color: var(--white); font-size: 30px; font-weight: 800;
+                 border-radius: 999px; background: var(--fairway); color: var(--sand); font-size: 30px; font-weight: 800;
                  box-shadow: 0 2px 0 var(--fairway-deep); touch-action: none; cursor: grab; }
   .unlock-knob.settle { transition: transform .25s ease-out; }
   .round-end { margin: 18px 0 8px; }
@@ -234,7 +234,7 @@
                    color: var(--ink); font-size: 17px; font-weight: 700; text-align: left; }
   @media (prefers-reduced-motion: reduce) { .past-card, .continue { transition: none; } }
 
-  .primary { width: 100%; min-height: 58px; border-radius: 16px; border: 0; background: var(--fairway); color: var(--white);
+  .primary { width: 100%; min-height: 58px; border-radius: 16px; border: 0; background: var(--fairway); color: var(--sand);
              font-weight: 800; font-size: 20px; box-shadow: 0 3px 0 var(--fairway-deep); }
   .primary:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--fairway-deep); }
   .link { width: 100%; min-height: 44px; background: none; border: 0; color: var(--mute); padding: 10px; font-weight: 600; }
