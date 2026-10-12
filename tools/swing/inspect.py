@@ -62,7 +62,7 @@ def main(folder):
     if swings:
         count = lambda kind: sum(e['type'] == kind for e in events)
         print(f"{len(swings)} swings found; club list shown {count('swing-list')} times, "
-              f"{sum(1 for s in strokes if s.get('fromSwingList'))} strokes logged from it, {count('not-a-shot')} 'Not a shot'")
+              f"{sum(1 for s in strokes if s.get('fromSwingList'))} strokes logged from it, {count('swing-cancel') + count('not-a-shot')} cancelled")
 
 
 if __name__ == '__main__':

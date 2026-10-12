@@ -23,6 +23,7 @@ final class RoundSession {
     struct Swing {
         let time: Date
         var position: WatchEvent.Position?
+        var listClosed = false   // the club list was cancelled: not shown again for this swing
     }
     private(set) var lastSwing: Swing?
     static let swingWindow: TimeInterval = 60
@@ -141,7 +142,13 @@ final class RoundSession {
         return swing
     }
 
-    // The swing is used (a stroke was logged) or was not a shot.
+    // The club list was cancelled: it is not shown again for this swing, but the swing keeps its position for a
+    // stroke logged with +1 within the minute.
+    func closeSwingList() {
+        lastSwing?.listClosed = true
+    }
+
+    // The swing is used (a stroke was logged).
     func clearSwing() {
         guard lastSwing != nil else { return }
         lastSwing = nil

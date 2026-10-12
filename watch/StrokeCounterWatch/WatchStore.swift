@@ -94,19 +94,22 @@ final class WatchStore: ObservableObject {
 
     // MARK: Swings
 
-    // The club list is shown when the wrist is raised within a minute of a swing, on a hole that takes strokes.
+    // The club list is shown when the wrist is raised within a minute of a swing, on a hole that takes strokes,
+    // unless it was cancelled for that swing.
     func swingWaiting(on hole: Int) -> Bool {
-        swingTime != nil && session.recentSwing != nil && !state.isRoundFinished && !state.isLocked(hole)
+        guard swingTime != nil, let swing = session.recentSwing else { return false }
+        return !swing.listClosed && !state.isRoundFinished && !state.isLocked(hole)
     }
 
     func swingListShown() {
         session.recorder.note("swing-list")
     }
 
-    // The player says the swing was not a shot (a practice swing): nothing is logged, and the list goes.
-    func dismissSwing() {
-        session.recorder.note("not-a-shot")
-        session.clearSwing()
+    // Cancel on the club list: nothing is logged and the list goes, not to come back for this swing. The swing
+    // keeps its position for a minute, in case the stroke is logged with +1 instead.
+    func cancelSwingList() {
+        session.recorder.note("swing-cancel")
+        session.closeSwingList()
     }
 
     // Changes a logged stroke's club and modifiers (all of them), from the screen shown after logging.
