@@ -206,3 +206,30 @@ private struct PulsingDot: View {
             .onAppear { dim = true }
     }
 }
+
+#if DEBUG
+#Preview("Hole with strokes") {
+    NavigationStack { ActiveHoleView(hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store())
+}
+
+#Preview("First stroke") {
+    NavigationStack { ActiveHoleView(hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store(PreviewData.round(strokesOnHole3: 0)))
+}
+
+#Preview("No GPS") {
+    NavigationStack { ActiveHoleView(hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store(fix: nil))
+}
+
+#Preview("Locked on the phone") {
+    NavigationStack { ActiveHoleView(hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store(PreviewData.round(locked: [1, 2, 3])))
+}
+
+#Preview("Round finished") {
+    NavigationStack { ActiveHoleView(hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store(PreviewData.round(locked: Array(1...9), finished: true)))
+}
+#endif

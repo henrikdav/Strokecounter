@@ -56,3 +56,12 @@ struct ModifiersView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Modifiers") {
+    let store = PreviewData.store()
+    store.armedMods = [.rough]
+    return NavigationStack { ModifiersView(path: .constant([])) }
+        .environmentObject(store)
+}
+#endif

@@ -41,3 +41,10 @@ struct StrokeLoggedView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Stroke logged") {
+    NavigationStack { StrokeLoggedView(stroke: PreviewData.loggedStroke, number: 2, hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store())
+}
+#endif
