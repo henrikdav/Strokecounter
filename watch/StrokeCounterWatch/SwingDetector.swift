@@ -1,6 +1,6 @@
 import Foundation
 
-// Finds full golf swings in the watch's motion, one sample at a time (100 Hz). A swing is a fast turn of the wrist
+// Finds full golf swings in the watch's motion, one sample at a time (any rate; the watch uses 50 Hz). A swing is a fast turn of the wrist
 // (rotation rate of at least 17 rad/s) with a hard jolt near it (user acceleration of at least 4 g within 0.4 s
 // before and 0.8 s after the turn starts): the ball being hit, or the club meeting the ground. Walking, carrying the
 // bag or tapping the watch stay well below. Only the strength counts, not the direction, so it works on either wrist
