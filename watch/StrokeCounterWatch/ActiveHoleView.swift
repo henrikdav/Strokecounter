@@ -18,7 +18,7 @@ struct ActiveHoleView: View {
         let club = store.club(on: hole)
         let locked = store.isLocked(hole)
         let finished = store.isRoundFinished
-        VStack(spacing: 5) {
+        VStack(spacing: 8) {
             VStack(spacing: 0) {
                 Text("HOLE \(hole)")
                     .font(.system(size: 15, weight: .bold))
@@ -53,7 +53,7 @@ struct ActiveHoleView: View {
                         .font(.system(size: 20, weight: .heavy))
                         .foregroundStyle(accentInk)
                     .padding(.horizontal, 8)
-                    .frame(maxWidth: .infinity, minHeight: 70)
+                    .frame(maxWidth: .infinity, minHeight: 56)
                     .background(RoundedRectangle(cornerRadius: 18).fill(accent))
                 }
                 .buttonStyle(.plain)
