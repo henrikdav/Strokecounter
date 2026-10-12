@@ -1,18 +1,23 @@
 import SwiftUI
 
-// Screen 3: arms modifiers for the next stroke. Nothing is logged here; Done goes back to the hole.
+// Sets the lie and shot type of a stroke just logged (opened from its pill on the confirmation screen). Each toggle
+// changes the stroke at once; Done goes back to the confirmation, where the choice shows.
 struct ModifiersView: View {
     @EnvironmentObject private var store: WatchStore
+    let strokeId: String
+    let hole: Int
     @Binding var path: [Route]
 
     var body: some View {
+        let stroke = store.strokes(on: hole).first { $0.id == strokeId }
+        let mods = Set(stroke?.mods.compactMap(Modifier.init(rawValue:)) ?? [])
         ScrollView {
             VStack(alignment: .leading, spacing: 5) {
-                group("LIE", [.rough, .bunker])
-                group("SHOT", [.chip, .pitch])
+                group("LIE", [.rough, .bunker], mods: mods, stroke: stroke)
+                group("SHOT", [.chip, .pitch], mods: mods, stroke: stroke)
                     .padding(.top, 6)
                 Button {
-                    path = []
+                    if !path.isEmpty { path.removeLast() }
                 } label: {
                     Text("Done")
                         .font(.system(size: 14, weight: .bold))
@@ -24,20 +29,23 @@ struct ModifiersView: View {
                 .padding(.top, 10)
             }
         }
-        .navigationTitle("Modifiers")
+        .navigationTitle("Lie & shot")
     }
 
-    private func group(_ title: String, _ mods: [Modifier]) -> some View {
+    private func group(_ title: String, _ choices: [Modifier], mods: Set<Modifier>, stroke: Snapshot.Stroke?) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
                 .font(.system(size: 10, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(.secondary)
             HStack(spacing: 5) {
-                ForEach(mods, id: \.self) { mod in
-                    let on = store.armedMods.contains(mod)
+                ForEach(choices, id: \.self) { mod in
+                    let on = mods.contains(mod)
                     Button {
-                        if on { store.armedMods.remove(mod) } else { store.armedMods.insert(mod) }
+                        guard let stroke else { return }
+                        var changed = mods
+                        if on { changed.remove(mod) } else { changed.insert(mod) }
+                        store.editStroke(strokeId, hole: hole, club: stroke.club, mods: changed)
                     } label: {
                         Text(mod.label)
                             .font(.system(size: 13, weight: on ? .bold : .regular))
@@ -58,10 +66,8 @@ struct ModifiersView: View {
 }
 
 #if DEBUG
-#Preview("Modifiers") {
-    let store = PreviewData.store()
-    store.armedMods = [.rough]
-    return NavigationStack { ModifiersView(path: .constant([])) }
-        .environmentObject(store)
+#Preview("Lie & shot") {
+    NavigationStack { ModifiersView(strokeId: "p2", hole: 3, path: .constant([])) }
+        .environmentObject(PreviewData.store())
 }
 #endif

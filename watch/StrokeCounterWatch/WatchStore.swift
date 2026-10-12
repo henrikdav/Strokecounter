@@ -7,8 +7,6 @@ import Foundation
 // The protocol is described in docs/watch-sync.md.
 final class WatchStore: ObservableObject {
     @Published private(set) var state: RoundState
-    @Published private(set) var pickedClub: RoundState.PickedClub?
-    @Published var armedMods: Set<Modifier> = []
     // A snapshot came from a newer iPhone app than this watch app understands. It is ignored (the round already
     // here keeps working, and events sent from here are still accepted) and the watch asks to be updated.
     @Published var phoneIsNewer = false
@@ -26,7 +24,7 @@ final class WatchStore: ObservableObject {
         let snapshot = defaults.data(forKey: "snapshot").flatMap { try? JSONDecoder().decode(Snapshot.self, from: $0) }
         let outbox = defaults.data(forKey: "outbox").flatMap { try? JSONDecoder().decode([WatchEvent].self, from: $0) } ?? []
         state = RoundState(snapshot: snapshot, outbox: outbox)
-        pickedClub = defaults.data(forKey: "pickedClub").flatMap { try? JSONDecoder().decode(RoundState.PickedClub.self, from: $0) }
+        defaults.removeObject(forKey: "pickedClub")   // from when a club could be picked before logging
         sync.onSnapshot = { [weak self] json in self?.receive(snapshotJSON: json) }
         sync.outbox = { [weak self] in self?.state.outbox ?? [] }
         session.onLateFix = { [weak self] strokeId, roundId, hole, position in
@@ -70,18 +68,12 @@ final class WatchStore: ObservableObject {
 
     func shotDistance(on hole: Int) -> RoundState.ShotDistance { state.shotDistance(on: hole, fix: freshFix) }
 
-    // The club the next stroke on the hole is logged with (RoundState.club(on:picked:)).
-    func club(on hole: Int) -> String { state.club(on: hole, picked: pickedClub) }
+    // The club the next stroke on the hole is logged with (RoundState.club(on:)).
+    func club(on hole: Int) -> String { state.club(on: hole) }
 
     // MARK: Actions
 
-    // Picks the club for the next stroke on the hole without logging anything, like arming a modifier.
-    func selectClub(_ club: String, hole: Int) {
-        pickedClub = RoundState.PickedClub(club: club, roundId: state.round?.id, hole: hole, t: Self.now)
-        defaults.set(try? JSONEncoder().encode(pickedClub), forKey: "pickedClub")
-    }
-
-    // Logs a stroke with the club and the armed modifiers, which then reset like on the phone. Never waits for
+    // Logs a stroke with the club; its club and modifiers can be changed right after (editStroke). Never waits for
     // GPS. The position is where the last swing was played, when one was found in the last minute (the player may
     // have walked on since); else the latest fix if it is recent; else it is filled in shortly. A swing is used
     // for one stroke only. fromSwingList: logged from the club list shown after a swing.
@@ -90,10 +82,9 @@ final class WatchStore: ObservableObject {
         let swingPosition = session.recentSwing?.position
         let fix = swingPosition ?? session.freshFix
         let id = UUID().uuidString.lowercased()
-        guard let event = change({ $0.logStroke(id: id, club: club, mods: armedMods, hole: hole, t: Self.now, position: fix) }),
+        guard let event = change({ $0.logStroke(id: id, club: club, mods: [], hole: hole, t: Self.now, position: fix) }),
               let roundId = state.round?.id else { return nil }
         if fix == nil { session.awaitFix(strokeId: id, roundId: roundId, hole: hole) } else { session.stopAwaitingFix() }
-        armedMods = []
         session.clearSwing()
         if let stroke = event.stroke {
             session.recorder.noteStroke(stroke, hole: hole, fromSwingList: fromSwingList, swingPosition: swingPosition != nil)
@@ -116,6 +107,13 @@ final class WatchStore: ObservableObject {
     func dismissSwing() {
         session.recorder.note("not-a-shot")
         session.clearSwing()
+    }
+
+    // Changes a logged stroke's club and modifiers (all of them), from the screen shown after logging.
+    func editStroke(_ id: String, hole: Int, club: String, mods: Set<Modifier>) {
+        if let event = change({ $0.editStroke(id: id, hole: hole, club: club, mods: mods, t: Self.now) }) {
+            session.recorder.noteEdit(strokeId: id, club: club, mods: event.mods ?? [])
+        }
     }
 
     func removeStroke(_ id: String, hole: Int) {

@@ -97,6 +97,10 @@ final class SwingRecorder {
                       "fromSwingList": fromSwingList, "swingPosition": swingPosition])
     }
 
+    func noteEdit(strokeId: String, club: String, mods: [String]) {
+        write(event: ["type": "edit", "t": Self.ms(Date()), "id": strokeId, "club": club, "mods": mods])
+    }
+
     func noteRemoved(strokeId: String) {
         write(event: ["type": "remove", "t": Self.ms(Date()), "id": strokeId])
     }

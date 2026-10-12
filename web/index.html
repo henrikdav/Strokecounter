@@ -441,7 +441,8 @@ const FIX_MAX_AGE_MS = 30000;
     watchRoundId: null         // round shown on the Apple Watch: the one opened last
   }
   stroke = { id, t, club, lat, lng, acc, landing?: { lat, lng, acc }, chip?, pitch?, bunker?, rough?,  // modifiers are true when set
-             note? }                                                                              // optional comment on the stroke
+             note?,                                                                               // optional comment on the stroke
+             editedAt? }                                                                          // when club or modifiers were last changed (ms)
 */
 
 // Turns saved (or restored) data into a db, filling in defaults. Returns null when there are no rounds to read.
@@ -2700,7 +2701,7 @@ function countText(n, word) {
 const watchBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.watch;
 // Sync protocol version, in every snapshot and event. Raised only for a change an older app could misread;
 // new optional fields keep it (both sides ignore fields they don't know).
-const WATCH_PROTOCOL = 2;   // 2: the watch also sends 'mark' and 'landing'
+const WATCH_PROTOCOL = 3;   // 2: the watch also sends 'mark' and 'landing'; 3: 'edit', strokes[].edited
 let watchTimer = null;
 let watchTooNewShown = false;
 
@@ -2749,6 +2750,7 @@ function sendWatchSnapshot() {
     holeNumbers(round).forEach(h => {
       strokes[h] = (round.holes[h] || []).map(s => ({
         id: s.id, club: s.club, mods: MODS.filter(m => s[m.key]).map(m => m.key), t: s.t,
+        ...(Number.isFinite(s.editedAt) ? { edited: s.editedAt } : {}),
         ...(hasPos(s) ? point(s) : {}),
         ...(hasPos(s.landing) ? { landing: point(s.landing) } : {})
       }));
@@ -2796,6 +2798,7 @@ function rememberRemoved(round, id) {
 //   { type: 'position', roundId, hole, id, position: { lat, lng, acc } }   (a fix that arrived just after logging)
 //   { type: 'landing', roundId, hole, id, position: { lat, lng, acc }, t }  (where the shot landed, like Stop)
 //   { type: 'mark', roundId, hole, position: { lat, lng, acc }, t }         (where the hole is, like Mark hole)
+//   { type: 'edit', roundId, hole, id, club, mods: [...], t }               (club and modifiers changed after logging)
 // Applying an event twice changes nothing, so the app can deliver again after a resend or a crash.
 // A stroke removed on either device stays removed, even if its 'add' arrives late.
 // The hole lock is enforced here, not only in the screens: a stroke added on the watch to a hole that was already
@@ -2844,6 +2847,18 @@ function applyWatchEvents(events) {
         stroke.landing = { lat: e.position.lat, lng: e.position.lng, acc: e.position.acc || 0 };
         changed = true;
       }
+    } else if (e.type === 'edit' && e.id && typeof e.club === 'string') {
+      // Club and modifiers changed on the watch after logging, like Save in the edit-stroke sheet. The newest edit
+      // wins, from either device (editedAt), so a late or repeated watch edit never undoes a newer one.
+      if (refusedByLock(round, e.hole, e.t)) return;
+      const found = findStroke(list, e.id);
+      const stroke = found && found.stroke;
+      const t = Number.isFinite(e.t) ? e.t : Date.now();
+      if (!stroke || stroke.editedAt > t || !(CLUBS.includes(e.club) || e.club === PENALTY)) return;
+      stroke.club = e.club;
+      MODS.forEach(m => { if (e.club !== PENALTY && (e.mods || []).includes(m.key)) stroke[m.key] = true; else delete stroke[m.key]; });
+      stroke.editedAt = t;
+      changed = true;
     } else if (e.type === 'mark' && hasPos(e.position)) {
       // Like Mark hole on the round screen. Marking again overwrites, so the newest mark wins, whichever device
       // made it and whatever order the marks arrive in.
@@ -2967,6 +2982,7 @@ function saveStrokeDraft() {
     const { club, mods, note } = sheet.draft;
     stroke.club = club;
     MODS.forEach(m => { if (mods[m.key] && club !== PENALTY) stroke[m.key] = true; else delete stroke[m.key]; });
+    stroke.editedAt = Date.now();   // so an older edit from the watch arriving later doesn't undo this one
     const text = note.trim().slice(0, NOTE_MAX.stroke);
     if (text) stroke.note = text; else delete stroke.note;
   }

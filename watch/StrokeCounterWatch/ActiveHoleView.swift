@@ -1,8 +1,9 @@
 import SwiftUI
 import WatchKit
 
-// Screen 1: the hole being played. The wide "+1 STROKE" button is the only way to log a stroke and says inside it
-// exactly what a tap will log (club and armed modifiers); Bag and Modifier only change that selection. Above it,
+// Screen 1: the hole being played. The wide "+1 STROKE" button logs a stroke with the club shown inside it (the
+// suggested one); club and modifiers are set afterwards, on the screen that confirms the stroke. Below it, the
+// hole's last stroke: a tap opens that screen again, to change it. Above it,
 // the distance of the current shot, live from GPS; a tap locks it as where the shot landed (Stop on the phone).
 // Undo (top left) removes the hole's last stroke; finish (top right, or a swipe up) ends the hole.
 // A hole locked on the phone shows a notice instead, and only finish works; a round finished on the phone is
@@ -15,7 +16,6 @@ struct ActiveHoleView: View {
     var body: some View {
         let strokes = store.strokes(on: hole)
         let club = store.club(on: hole)
-        let next = strokeSummary(club: club, mods: Array(store.armedMods))
         let locked = store.isLocked(hole)
         let finished = store.isRoundFinished
         VStack(spacing: 5) {
@@ -48,7 +48,7 @@ struct ActiveHoleView: View {
                     VStack(spacing: 1) {
                         Text("+1 STROKE")
                             .font(.system(size: 18, weight: .heavy))
-                        Text(next)
+                        Text(club)
                             .font(.system(size: 13, weight: .bold))
                             .opacity(0.75)
                             .lineLimit(1)
@@ -56,15 +56,14 @@ struct ActiveHoleView: View {
                     }
                     .foregroundStyle(accentInk)
                     .padding(.horizontal, 8)
-                    .frame(maxWidth: .infinity, minHeight: 60)
+                    .frame(maxWidth: .infinity, minHeight: 70)
                     .background(RoundedRectangle(cornerRadius: 18).fill(accent))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Log stroke \(strokes.count + 1): \(next)")
+                .accessibilityLabel("Log stroke \(strokes.count + 1): \(club)")
 
-                HStack(spacing: 4) {
-                    navButton("Bag") { path = [.clubs] }
-                    navButton("Modifier") { path = [.modifiers] }
+                if let last = strokes.last {
+                    lastStroke(last, number: strokes.count)
                 }
             }
         }
@@ -182,14 +181,24 @@ struct ActiveHoleView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func navButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 13))
-                .frame(maxWidth: .infinity, minHeight: 30)
-                .background(RoundedRectangle(cornerRadius: 12).fill(tile))
+    // The hole's last stroke, "Last: 7i · Rough": a tap opens it to change club or modifiers, as right after logging.
+    private func lastStroke(_ stroke: Snapshot.Stroke, number: Int) -> some View {
+        Button {
+            path = [.logged(stroke, number: number, hole: hole)]
+        } label: {
+            HStack(spacing: 3) {
+                Text("Last:").foregroundStyle(.secondary)
+                Text(strokeSummary(club: stroke.club, mods: stroke.mods.compactMap(Modifier.init(rawValue:))))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .background(Capsule().fill(tile))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Last stroke, \(stroke.club). Change it")
     }
 }
 
