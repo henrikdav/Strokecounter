@@ -1,16 +1,16 @@
 import SwiftUI
 
 // The one club list, used after a swing (SwingClubsView) and to change a stroke's club (ClubPickerView), so both
-// look and work the same: the screen's title in the system bar, the bag scrolling in the middle, and one button
-// fixed at the bottom edge. The club in the middle of the list is marked; the Digital Crown (or a swipe) moves the
-// list a club at a time, so the crown moves the mark. A tap on a club picks it, marked or not. There is no back
-// button: the bottom button is the way out without picking.
+// look and work the same: the screen's title in the system bar, the bag scrolling in the middle, and Cancel and
+// Done fixed at the bottom edge. The club in the middle of the list is marked; the Digital Crown (or a swipe) moves
+// the list a club at a time, so the crown moves the mark, and a tap on a club marks it too. Done takes the marked
+// club; Cancel leaves without one. Nothing is picked by touching a row, so a nudge while scrolling does no harm,
+// and the usual case stays one tap: the list opens with the likely club marked. No back button.
 struct ClubListView: View {
     let clubs: [String]
     let start: String                    // marked and in the middle when the list opens
-    let bottomLabel: String
-    let onPick: (String) -> Void
-    let onBottom: () -> Void
+    let onDone: (String) -> Void
+    let onCancel: () -> Void
 
     @State private var centered: String?
 
@@ -31,14 +31,11 @@ struct ClubListView: View {
                 .scrollPosition(id: $centered, anchor: .center)
                 .scrollIndicators(.hidden)
             }
-            Button(action: onBottom) {
-                Text(bottomLabel)
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 32)
-                    .background(Capsule().fill(Color(white: 0.2)))
+            HStack(spacing: 6) {
+                bottomButton("Cancel", fill: Color(white: 0.2), ink: .primary, action: onCancel)
+                bottomButton("Done", fill: accent, ink: accentInk) { onDone(centered ?? start) }
             }
-            .buttonStyle(.plain)
-            // Inset from the sides, so the display's rounded corners don't cut it at the bottom edge.
+            // Inset from the sides, so the display's rounded corners don't cut them at the bottom edge.
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
         }
@@ -52,7 +49,7 @@ struct ClubListView: View {
     private func row(_ club: String) -> some View {
         let marked = club == (centered ?? start)
         return Button {
-            onPick(club)
+            withAnimation { centered = club }
         } label: {
             Text(club)
                 .font(.system(size: 15, weight: marked ? .bold : .regular))
@@ -67,5 +64,16 @@ struct ClubListView: View {
         .buttonStyle(.plain)
         .id(club)
         .accessibilityAddTraits(marked ? .isSelected : [])
+    }
+
+    private func bottomButton(_ title: String, fill: Color, ink: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(ink)
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .background(Capsule().fill(fill))
+        }
+        .buttonStyle(.plain)
     }
 }
