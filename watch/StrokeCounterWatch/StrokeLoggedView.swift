@@ -79,6 +79,7 @@ struct StrokeLoggedView: View {
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 36)
             .background(Capsule().fill(tile))
+            .opacity(enabled ? 1 : 0.45)   // e.g. lie and shot for a penalty stroke, which takes none
         }
         .buttonStyle(.plain)
         .disabled(!enabled)

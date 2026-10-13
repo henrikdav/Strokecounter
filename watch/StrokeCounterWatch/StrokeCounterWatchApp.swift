@@ -35,6 +35,7 @@ enum Route: Hashable {
 let accent = Color(red: 0.19, green: 0.82, blue: 0.35)        // #30D158, as in the mockup
 let accentInk = Color(red: 0.02, green: 0.14, blue: 0.06)     // dark text on the accent
 let tile = Color(white: 0.11)                                  // #1C1C1E
+let penaltyRed = Color(red: 0.77, green: 0.22, blue: 0.18)     // the phone's --flag (#C4372D), for Penalty
 
 struct RootView: View {
     @EnvironmentObject private var store: WatchStore
