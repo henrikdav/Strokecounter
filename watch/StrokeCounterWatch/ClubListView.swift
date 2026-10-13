@@ -31,13 +31,7 @@ struct ClubListView: View {
                 .scrollPosition(id: $centered, anchor: .center)
                 .scrollIndicators(.hidden)
             }
-            HStack(spacing: 6) {
-                bottomButton("Cancel", fill: Color(white: 0.2), ink: .primary, action: onCancel)
-                bottomButton("Done", fill: accent, ink: accentInk) { onDone(centered ?? start) }
-            }
-            // Inset from the sides, so the display's rounded corners don't cut them at the bottom edge.
-            .padding(.horizontal, 12)
-            .padding(.bottom, 4)
+            CancelDoneButtons(onCancel: onCancel) { onDone(centered ?? start) }
         }
         // Down to the bottom edge, so the list gets the room the bottom margin would take.
         .ignoresSafeArea(edges: .bottom)
@@ -64,16 +58,5 @@ struct ClubListView: View {
         .buttonStyle(.plain)
         .id(club)
         .accessibilityAddTraits(marked ? .isSelected : [])
-    }
-
-    private func bottomButton(_ title: String, fill: Color, ink: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(ink)
-                .frame(maxWidth: .infinity, minHeight: 32)
-                .background(Capsule().fill(fill))
-        }
-        .buttonStyle(.plain)
     }
 }
