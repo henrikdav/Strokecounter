@@ -2740,7 +2740,8 @@ function teeClubs(round) {
 
 function sendWatchSnapshot() {
   const round = db.rounds.find(r => r.id === db.watchRoundId) || null;
-  const snapshot = { v: WATCH_PROTOCOL, round: null, bag: db.activeClubs, club: db.club };
+  // `sent` lets the watch ignore an older snapshot that arrives after a newer one (they travel on several channels).
+  const snapshot = { v: WATCH_PROTOCOL, sent: Date.now(), round: null, bag: db.activeClubs, club: db.club };
   if (round) {
     const course = round.courseId ? db.courses.find(c => c.id === round.courseId) : null;
     const hasExtras = strokesReceived(round, round.startHole || 1) !== null;

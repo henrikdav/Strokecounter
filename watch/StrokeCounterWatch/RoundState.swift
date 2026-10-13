@@ -186,6 +186,7 @@ struct RoundState: Equatable {
     enum Received: Equatable {
         case applied
         case newerVersion   // from a newer iPhone app: ignored, the round already here keeps working
+        case stale          // sent before the snapshot already here: ignored
         case unreadable
     }
 
@@ -194,6 +195,8 @@ struct RoundState: Equatable {
     mutating func receive(snapshotJSON json: String) -> Received {
         guard let new = try? JSONDecoder().decode(Snapshot.self, from: Data(json.utf8)) else { return .unreadable }
         guard (new.v ?? 1) <= WatchProtocol.version else { return .newerVersion }
+        // The same snapshot can come on several channels and in any order; one sent before the one shown is old.
+        if let sent = new.sent, let shown = snapshot?.sent, sent < shown { return .stale }
         snapshot = new
         if let round = new.round {
             outbox.removeAll { $0.roundId != round.id || $0.isConfirmed(by: round) }

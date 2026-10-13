@@ -147,8 +147,9 @@ blocks the screen in automated runs.
 ## Watch sync in short
 
 - **Phone → watch:** whenever the web app saves, it sends a snapshot of the round opened last (holes, par, bag,
-  strokes, locks, finished state) as the WatchConnectivity application context and, when the watch is
-  reachable, as a live message. The watch can also ask for it.
+  strokes, locks, finished state) as the WatchConnectivity application context, queued (`transferUserInfo`, so it
+  always arrives in the end) and, when the watch is reachable, as a live message. The watch also asks for it
+  when the wrist is raised, and ignores a snapshot older than the one it has.
 - **Watch → phone:** every stroke added or removed, hole finished and late GPS fix is an event, sent queued
   (`transferUserInfo`) and live (`sendMessage`). The watch keeps each event until a snapshot shows the phone has it.
 - **On the phone:** `WatchBridge.swift` stores incoming events in a file until the web app has applied them;

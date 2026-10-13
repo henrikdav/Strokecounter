@@ -149,8 +149,11 @@ final class WatchStore: ObservableObject {
         session.roundScreenShown()
     }
 
+    // Raising the wrist also asks the phone for its current round, so what was done on the phone (a stroke, Done,
+    // Finish round) shows at once even if its snapshot is still on the way.
     func setAppActive(_ active: Bool) {
         session.setAppActive(active)
+        if active { sync.requestSnapshot() }
     }
 
     // The iPhone app launched this app for a new round: start its workout (and GPS), and ask for the round in
@@ -180,6 +183,8 @@ final class WatchStore: ObservableObject {
             session.roundChanged(id: state.round?.id, finished: state.isRoundFinished)
         case .newerVersion:
             phoneIsNewer = true
+        case .stale:
+            break
         case .unreadable:
             break
         }

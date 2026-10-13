@@ -63,6 +63,14 @@ final class WatchBridge: NSObject, WKScriptMessageHandler, WCSessionDelegate {
         if session.isReachable {
             session.sendMessage(["snapshot": json], replyHandler: nil, errorHandler: nil)
         }
+        // Also queued, which the system always delivers in the end, also with the watch app in the background and
+        // over Bluetooth only, where the context can lag for a long time and the live message is skipped. So a
+        // finished round always ends the watch's workout. Only the latest snapshot matters: older ones still
+        // waiting are cancelled, so the queue never grows.
+        for transfer in session.outstandingUserInfoTransfers where transfer.userInfo["snapshot"] != nil {
+            transfer.cancel()
+        }
+        session.transferUserInfo(["snapshot": json])
     }
 
     // A round was started (or continued) on the phone: launch the watch app with a golf workout, so it is on the

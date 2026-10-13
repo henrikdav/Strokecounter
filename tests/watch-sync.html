@@ -25,6 +25,7 @@ test(async () => {
 
   // Protocol version
   ok('the snapshot carries the protocol version', snap.v === 3);
+  ok('and when it was made, so the watch can ignore an older one arriving late', Number.isFinite(snap.sent) && Math.abs(snap.sent - Date.now()) < 5000);
   ok('events from a newer watch app are not applied and stay queued (false)',
     apply([ev({ v: 1, type: 'add', stroke: { id: 'n1', club: '9i', mods: [], t: 1500 } }), ev({ v: 4, type: 'add', stroke: { id: 'n2', club: '9i', mods: [], t: 1600 } })]) === false
     && !hole(1).some(s => s.id === 'n1' || s.id === 'n2'));
