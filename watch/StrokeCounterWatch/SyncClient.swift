@@ -2,7 +2,7 @@ import Foundation
 import WatchConnectivity
 
 // The watch's side of WatchConnectivity (docs/watch-sync.md). It only moves messages: snapshots from the phone
-// arrive through onSnapshot, whichever channel brought them, and events go out both queued (transferUserInfo,
+// arrive through onSnapshot, whichever channel brought them (context, live message, queue or a reply), and events go out both queued (transferUserInfo,
 // delivered even if the phone app is in the background or closed) and live (sendMessage, when the phone app runs,
 // so they show up within a second; the phone ignores the second copy). Callbacks run on the main queue.
 final class SyncClient: NSObject, WCSessionDelegate {
@@ -91,6 +91,12 @@ final class SyncClient: NSObject, WCSessionDelegate {
     // A live copy of the snapshot, sent while this app is running.
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         guard let json = message["snapshot"] as? String else { return }
+        DispatchQueue.main.async { self.onSnapshot?(json) }
+    }
+
+    // The queued copy of a snapshot, delivered in the end even when the other two channels missed it.
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        guard let json = userInfo["snapshot"] as? String else { return }
         DispatchQueue.main.async { self.onSnapshot?(json) }
     }
 

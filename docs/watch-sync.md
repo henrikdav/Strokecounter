@@ -34,7 +34,8 @@ property-list types.
 | --- | --- | --- | --- |
 | Phone → watch | `updateApplicationContext` | `{ "snapshot": "<snapshot JSON>" }` | Every new snapshot; again when the session activates, the watch app is installed, or the watch becomes reachable |
 | Phone → watch | `sendMessage`, no reply | `{ "snapshot": "<snapshot JSON>" }` | The same moments, when the watch app is reachable (the context alone can be slow or lost) |
-| Watch → phone | `sendMessage` with reply | `{ "type": "snapshot-request" }` → `{ "snapshot": "<JSON>" }` | Watch session activates or the phone becomes reachable. The phone answers from the last snapshot it saved, so this also works when the watch wakes the iPhone app in the background |
+| Phone → watch | `transferUserInfo` | `{ "snapshot": "<snapshot JSON>" }` | The same moments, queued, so it arrives in the end even over Bluetooth with the watch app in the background (where the context lagged and the live message was skipped, so Finish round never reached the watch, #1). Older snapshots still queued are cancelled first |
+| Watch → phone | `sendMessage` with reply | `{ "type": "snapshot-request" }` → `{ "snapshot": "<JSON>" }` | Watch session activates, the phone becomes reachable, or the watch app becomes active (wrist raised). The phone answers from the last snapshot it saved, so this also works when the watch wakes the iPhone app in the background |
 | Watch → phone | `transferUserInfo` | `{ "events": "<JSON array of events>" }` | Every new event; the whole outbox again when the watch session activates |
 | Watch → phone | `sendMessage`, no reply | `{ "events": "<JSON array of events>" }` | Every new event, when the phone is reachable, so it shows up within a second |
 | Phone → watch | `sendMessage` with reply | `{ "type": "flush" }` → `{ "events": "<JSON array of the outbox>" }` | iPhone app comes to the foreground, its session activates, or the watch becomes reachable |
@@ -42,13 +43,15 @@ property-list types.
 `transferUserInfo` is queued by the system and delivered even when the receiving app is in the background or not
 running; it is not delivered between simulators. The live messages need the other app running. Events are
 therefore sent both ways and may arrive more than once, in any order between channels; applying them is
-idempotent.
+idempotent. A snapshot carries `sent` (when the phone made it), and the watch ignores one sent before the snapshot
+it already has, so a late copy never takes it back.
 
 ## Snapshot (phone → watch)
 
 ```json
 {
   "v": 3,
+  "sent": 1759500700000,
   "round": {
     "id": "mcx3k2f9ab",
     "name": "Malmö Burlöv",
@@ -72,6 +75,7 @@ idempotent.
 }
 ```
 
+- `sent` is when the phone made the snapshot (ms); optional, so no new version.
 - `round` is the round opened last on the phone (`db.watchRoundId`), or `null` when there is none or it was
   deleted. Opening a finished round to look at it does not change which round the watch shows.
 - `par` and `index` are `null` for a round without course data. `name` is the course name, else the round's label.

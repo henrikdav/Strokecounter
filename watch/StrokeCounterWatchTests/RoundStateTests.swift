@@ -11,8 +11,10 @@ final class RoundStateTests: XCTestCase {
     private func snapshotJSON(roundId: String? = "r", currentHole: Int = 1, locked: [Int] = [], finished: Bool? = nil,
                               strokes: [Int: [[String: Any]]] = [:], removed: [String] = [], v: Int? = 2,
                               extra: [Int: Int] = [:], marked: [Int: [String: Double]] = [:],
-                              bag: [String] = ["Driver", "7i", "Putter"], pars: [Int: Int] = [:], tee: [Int: String] = [:]) -> String {
+                              bag: [String] = ["Driver", "7i", "Putter"], pars: [Int: Int] = [:], tee: [Int: String] = [:],
+                              sent: Double? = nil) -> String {
         var snapshot: [String: Any] = ["bag": bag, "club": "7i"]
+        if let sent { snapshot["sent"] = sent }
         if let v { snapshot["v"] = v }
         if let roundId {
             var round: [String: Any] = [
@@ -428,5 +430,22 @@ final class RoundStateTests: XCTestCase {
         edited["edited"] = 50.0
         _ = s.receive(snapshotJSON: snapshotJSON(strokes: [1: [edited]]))
         XCTAssertTrue(s.outbox.isEmpty)
+    }
+
+    // MARK: Snapshots on several channels
+
+    func testAnOlderSnapshotArrivingLateIsIgnored() {
+        var s = state(snapshotJSON(currentHole: 4, sent: 2000))
+        XCTAssertEqual(s.receive(snapshotJSON: snapshotJSON(currentHole: 3, sent: 1000)), .stale)
+        XCTAssertEqual(s.currentHole, 4)
+        XCTAssertEqual(s.receive(snapshotJSON: snapshotJSON(currentHole: 5, sent: 3000)), .applied)
+        XCTAssertEqual(s.currentHole, 5)
+        XCTAssertEqual(s.receive(snapshotJSON: snapshotJSON(currentHole: 5, sent: 3000)), .applied, "the same one again is fine")
+    }
+
+    func testSnapshotsWithoutATimeAreAlwaysApplied() {
+        var s = state(snapshotJSON(currentHole: 4, sent: 2000))
+        XCTAssertEqual(s.receive(snapshotJSON: snapshotJSON(currentHole: 6)), .applied)
+        XCTAssertEqual(s.currentHole, 6)
     }
 }

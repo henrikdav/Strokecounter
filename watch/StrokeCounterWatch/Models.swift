@@ -57,6 +57,7 @@ struct Snapshot: Codable, Equatable {
     }
 
     var v: Int? = nil   // missing in snapshots from before versioning, which count as 1
+    var sent: Double? = nil   // when the phone made it (ms); an older one arriving late is ignored
     let round: Round?
     let bag: [String]
     let club: String
