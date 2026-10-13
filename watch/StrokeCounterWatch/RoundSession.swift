@@ -113,11 +113,14 @@ final class RoundSession {
     func setAppActive(_ active: Bool) {
         appActive = active
         updateLocation()
+        // The wrist was raised, likely to log or mark something: have a fresh position ready.
+        if active { location.refresh() }
     }
 
     // A stroke was just logged without a position: the next fix within the window is passed on for it.
     func awaitFix(strokeId: String, roundId: String, hole: Int) {
         awaitingFix = (strokeId, roundId, hole, Date())
+        location.refresh()   // standing still gives no new fix otherwise
     }
 
     func stopAwaitingFix() {
@@ -156,8 +159,10 @@ final class RoundSession {
     }
 
     private func swingFound(at time: Date, _ swing: SwingDetector.Swing) {
-        // The player stands still at the ball, so the latest fix (no older than 30 s) is where the swing was.
+        // The player stands still at the ball, so the latest fix (no older than 30 s, within 2 m of the ball) is
+        // where the swing was; without one, the first fix of a refresh fills it in (swingFix).
         lastSwing = Swing(time: time, position: freshFix)
+        if lastSwing?.position == nil { location.refresh() }
         recorder.noteSwing(at: time, swing, position: lastSwing?.position)
         onSwingChange?()
     }
