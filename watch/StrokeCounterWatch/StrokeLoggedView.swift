@@ -2,8 +2,8 @@ import SwiftUI
 
 // Screen 4: confirms the stroke just logged, and is where it is described. Two pills, like the shot distance on the
 // hole screen: the club, and the modifiers (lie and shot); each opens its screen and the choice shows here at once.
-// Undo removes the stroke. Goes back to the hole after a few seconds, or at once on a tap elsewhere; the countdown
-// pauses while the club or modifier screen is open and starts again on return. Also opened from the hole screen's
+// Undo removes the stroke; Done goes back to the hole at once, else it does so by itself after a few seconds (the
+// countdown pauses while the club or modifier screen is open and starts again on return). Also opened from the hole screen's
 // "Last:" line, to change the hole's last stroke later.
 struct StrokeLoggedView: View {
     @EnvironmentObject private var store: WatchStore
@@ -20,6 +20,7 @@ struct StrokeLoggedView: View {
         let mods = current.mods.compactMap(Modifier.init(rawValue:))
         let editable = !store.isLocked(hole)
         VStack(spacing: 6) {
+            Spacer(minLength: 0)
             HStack(spacing: 6) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 13, weight: .heavy))
@@ -38,17 +39,17 @@ struct StrokeLoggedView: View {
                 path.append(.editModifiers(strokeId: stroke.id, hole: hole))
             }
             .accessibilityLabel(mods.isEmpty ? "No lie or shot type. Add" : "Lie and shot. Change")
-            Button("Undo") {
-                store.removeStroke(stroke.id, hole: hole)
+            Spacer(minLength: 0)
+            CancelDoneButtons(cancelTitle: "Undo") {
+                if editable { store.removeStroke(stroke.id, hole: hole) }
+                path = []
+            } onDone: {
                 path = []
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(!editable)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture { path = [] }
+        // Down to the bottom edge, like the club lists, so the buttons sit in the same place.
+        .ignoresSafeArea(edges: .bottom)
         .navigationBarBackButtonHidden(true)
         // Runs again whenever this screen is on top: opened, or back from the club or modifier screen.
         .task(id: isOnTop) {
