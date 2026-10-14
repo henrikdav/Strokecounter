@@ -14,6 +14,8 @@ final class WatchStore: ObservableObject {
     @Published private(set) var lastFix: CLLocation?
     // When the last swing was found (RoundSession.lastSwing), so the screens can show the club list after it.
     @Published private(set) var swingTime: Date?
+    // Counts every change to the swing (found, walked away from, used), so the screens can react to each.
+    @Published private(set) var swingChanges = 0
 
     private let sync = SyncClient()
     private let session = RoundSession()
@@ -32,7 +34,11 @@ final class WatchStore: ObservableObject {
         }
         session.onFix = { [weak self] fix in self?.lastFix = fix }
         session.onRecording = { [weak self] folder in self?.sync.sendRecording(folder) }
-        session.onSwingChange = { [weak self] in self?.swingTime = self?.session.lastSwing?.time }
+        session.onSwingChange = { [weak self] in
+            self?.swingTime = self?.session.lastSwing?.time
+            self?.swingChanges += 1
+        }
+        session.currentHole = { [weak self] in self?.state.currentHole }
         sync.activeRecording = { [weak self] in self?.session.recorder.currentFolder }
         session.setSwingDetection(state.swingDetection)
         session.roundChanged(id: state.round?.id, finished: state.isRoundFinished)
@@ -80,7 +86,8 @@ final class WatchStore: ObservableObject {
     // for one stroke only. fromSwingList: logged from the club list shown after a swing.
     @discardableResult
     func logStroke(club: String, hole: Int, fromSwingList: Bool = false) -> Snapshot.Stroke? {
-        let swingPosition = session.recentSwing?.position
+        // From the club list: the swing it was shown for. With +1: a swing in the last minute.
+        let swingPosition = fromSwingList ? session.swingToLog?.position : session.recentSwing?.position
         let fix = swingPosition ?? session.freshFix
         let id = UUID().uuidString.lowercased()
         guard let event = change({ $0.logStroke(id: id, club: club, mods: [], hole: hole, t: Self.now, position: fix) }),
@@ -98,9 +105,12 @@ final class WatchStore: ObservableObject {
     // The club list is shown when the wrist is raised within a minute of a swing, on a hole that takes strokes,
     // unless it was cancelled for that swing.
     func swingWaiting(on hole: Int) -> Bool {
-        guard swingTime != nil, let swing = session.recentSwing else { return false }
-        return !swing.listClosed && !state.isRoundFinished && !state.isLocked(hole)
+        guard swingTime != nil, session.swingToLog != nil else { return false }
+        return !state.isRoundFinished && !state.isLocked(hole)
     }
+
+    // When the swing the club list is for was played, shown as its title once it is more than a minute ago.
+    var swingToLogTime: Date? { session.swingToLog?.time }
 
     func swingListShown() {
         session.recorder.note("swing-list")

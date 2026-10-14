@@ -18,15 +18,23 @@ final class RoundSession {
     // Follows the motion while the workout runs, finds swings and records the data (SwingRecorder).
     let recorder = SwingRecorder()
 
-    // The last swing found and where it was played from. For a minute it gives the next stroke logged its position,
-    // and raising the wrist shows the club list (WatchStore). Practice swings each replace it, so the last one counts.
+    // The last swing found, where it was played from and on which hole. It is kept until a stroke is logged, the
+    // next swing replaces it (so practice swings before a shot count as one), or the hole changes. Within a minute it
+    // gives a stroke logged with +1 its position, and raising the wrist shows the club list (WatchStore). After
+    // that, walking 15 m away from it without logging means the shot was likely forgotten (on the recorded rounds
+    // 81 of 99 shots against 18 of 119 other swings): one buzz, and the club list shows on the next wrist raise.
     struct Swing {
         let time: Date
+        let hole: Int?
         var position: WatchEvent.Position?
         var listClosed = false   // the club list was cancelled: not shown again for this swing
+        var walkedAway = false   // the player has since walked 15 m from it
     }
     private(set) var lastSwing: Swing?
     static let swingWindow: TimeInterval = 60
+    static let walkedAwayDistance = 15.0
+    // The hole being played, so a swing belongs to it (WatchStore).
+    var currentHole: () -> Int? = { nil }
     // Swing detection, on unless switched off in the phone's Settings (it comes with the snapshot).
     private var detecting = true
 
@@ -49,6 +57,7 @@ final class RoundSession {
         location.onFix = { [weak self] fix in
             self?.lateFix(fix)
             self?.swingFix(fix)
+            self?.checkWalkedAway(fix)
             self?.recorder.noteFix(fix)
             self?.onFix?(fix)
         }
@@ -148,9 +157,17 @@ final class RoundSession {
         if !on { clearSwing() }
     }
 
-    // The swing found in the last minute, if any.
+    // The swing found in the last minute, if any: its position goes to a stroke logged with +1.
     var recentSwing: Swing? {
         guard let swing = lastSwing, -swing.time.timeIntervalSinceNow <= Self.swingWindow else { return nil }
+        return swing
+    }
+
+    // The swing the club list is for: one found in the last minute, or one walked away from without logging,
+    // on the hole being played and not cancelled.
+    var swingToLog: Swing? {
+        guard let swing = lastSwing, !swing.listClosed, swing.hole == currentHole(),
+              swing.walkedAway || -swing.time.timeIntervalSinceNow <= Self.swingWindow else { return nil }
         return swing
     }
 
@@ -170,7 +187,7 @@ final class RoundSession {
     private func swingFound(at time: Date, _ swing: SwingDetector.Swing) {
         // The player stands still at the ball, so the latest fix (no older than 30 s, within 2 m of the ball) is
         // where the swing was; without one, the first fix of a refresh fills it in (swingFix).
-        lastSwing = Swing(time: time, position: freshFix)
+        lastSwing = Swing(time: time, hole: currentHole(), position: freshFix)
         if lastSwing?.position == nil { location.refresh() }
         recorder.noteSwing(at: time, swing, position: lastSwing?.position)
         onSwingChange?()
@@ -180,6 +197,21 @@ final class RoundSession {
     private func swingFix(_ fix: CLLocation) {
         guard let swing = lastSwing, swing.position == nil, fix.timestamp.timeIntervalSince(swing.time) <= 10 else { return }
         lastSwing?.position = WatchEvent.Position(lat: fix.coordinate.latitude, lng: fix.coordinate.longitude, acc: fix.horizontalAccuracy)
+    }
+
+    // Walking 15 m from an unlogged swing: buzz once, and the club list waits for the next wrist raise.
+    private func checkWalkedAway(_ fix: CLLocation) {
+        guard let swing = lastSwing, !swing.walkedAway, !swing.listClosed, let from = swing.position,
+              swing.hole == currentHole() else { return }
+        let here = WatchEvent.Position(lat: fix.coordinate.latitude, lng: fix.coordinate.longitude, acc: fix.horizontalAccuracy)
+        let distance = meters(from, here)
+        guard distance >= Self.walkedAwayDistance else { return }
+        lastSwing?.walkedAway = true
+        recorder.note("swing-reminder")
+        // Two buzzes, like when the phone starts the watch app: one alone is easily missed while walking.
+        WKInterfaceDevice.current().play(.notification)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { WKInterfaceDevice.current().play(.notification) }
+        onSwingChange?()
     }
 
     private func updateLocation() {
