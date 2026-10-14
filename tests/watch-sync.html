@@ -26,6 +26,16 @@ test(async () => {
   // Protocol version
   ok('the snapshot carries the protocol version', snap.v === 3);
   ok('and when it was made, so the watch can ignore an older one arriving late', Number.isFinite(snap.sent) && Math.abs(snap.sent - Date.now()) < 5000);
+  ok('swing detection is on unless switched off', snap.swingDetection === true);
+  app.E("sheet = { type: 'settings' }; render();");
+  ok('Settings has the switch in the iOS app, on', app.q('[data-action=toggle-swing-detection]').getAttribute('aria-checked') === 'true');
+  await app.click('[data-action=toggle-swing-detection]');
+  snap = await lastSnapshot();
+  ok('switching it off is saved and sent to the watch', app.saved().swingDetection === false && snap.swingDetection === false && /Off/.test(app.q('[data-action=toggle-swing-detection]').textContent));
+  await app.click('[data-action=toggle-swing-detection]');
+  snap = await lastSnapshot();
+  ok('and back on', snap.swingDetection === true);
+  app.E("sheet = null; render();");
   ok('events from a newer watch app are not applied and stay queued (false)',
     apply([ev({ v: 1, type: 'add', stroke: { id: 'n1', club: '9i', mods: [], t: 1500 } }), ev({ v: 4, type: 'add', stroke: { id: 'n2', club: '9i', mods: [], t: 1600 } })]) === false
     && !hole(1).some(s => s.id === 'n1' || s.id === 'n2'));

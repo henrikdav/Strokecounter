@@ -77,6 +77,8 @@ it already has, so a late copy never takes it back.
 ```
 
 - `sent` is when the phone made the snapshot (ms); optional, so no new version.
+- `swingDetection` is `false` when swing detection is switched off in the phone's Settings; missing means on. The watch
+  stops or starts reading the motion sensor at once, also mid-round (optional, no new version).
 - `round` is the round opened last on the phone (`db.watchRoundId`), or `null` when there is none or it was
   deleted. Opening a finished round to look at it does not change which round the watch shows.
 - `par` and `index` are `null` for a round without course data. `name` is the course name, else the round's label.

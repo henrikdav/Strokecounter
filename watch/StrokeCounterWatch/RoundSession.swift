@@ -27,6 +27,8 @@ final class RoundSession {
     }
     private(set) var lastSwing: Swing?
     static let swingWindow: TimeInterval = 60
+    // Swing detection, on unless switched off in the phone's Settings (it comes with the snapshot).
+    private var detecting = true
 
     private let location = LocationTracker()
     private let workout = RoundWorkout()
@@ -130,7 +132,7 @@ final class RoundSession {
     // Motion is followed exactly while the round's workout runs.
     private func updateRecording() {
         if workout.isRunning, let id = workout.roundId {
-            if !recorder.isRunning { recorder.start(roundId: id) }
+            if !recorder.isRunning { recorder.start(roundId: id, detecting: detecting) }
         } else if recorder.isRunning {
             recorder.stop()
             clearSwing()
@@ -138,6 +140,13 @@ final class RoundSession {
     }
 
     // MARK: Swings
+
+    func setSwingDetection(_ on: Bool) {
+        guard on != detecting else { return }
+        detecting = on
+        recorder.setDetecting(on)
+        if !on { clearSwing() }
+    }
 
     // The swing found in the last minute, if any.
     var recentSwing: Swing? {

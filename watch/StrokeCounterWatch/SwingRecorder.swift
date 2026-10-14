@@ -48,22 +48,35 @@ final class SwingRecorder {
 
     static var recordingsFolder: URL { URL.documentsDirectory.appending(path: "SwingRecordings") }
 
-    func start(roundId: String) {
-        guard !isRunning, motion.isDeviceMotionAvailable else { return }
+    // Starts the round's recording (events and battery), and reads the motion sensor if detecting is on.
+    func start(roundId: String, detecting: Bool) {
+        guard !isRunning else { return }
         isRunning = true
         let now = Date().timeIntervalSince1970
         t0 = now
         bootOffset = now - ProcessInfo.processInfo.systemUptime
         if Self.recordsEvents {
-            openFiles(roundId: roundId, now: now)
+            openFiles(roundId: roundId, now: now, detecting: detecting)
             startBatteryLog()
         }
-        motion.deviceMotionUpdateInterval = 1 / Self.rate
-        queue.addOperation { [self] in detector = SwingDetector() }
-        motion.startDeviceMotionUpdates(to: queue) { [weak self] sample, _ in
-            guard let self, let sample else { return }
-            self.handle(sample)
+        setDetecting(detecting)
+    }
+
+    // Swing detection on or off (the phone's Settings), also mid-round: off stops reading the motion sensor, which
+    // is what costs battery; the recording goes on, noting when it changed, so the battery can be compared.
+    func setDetecting(_ on: Bool) {
+        guard isRunning, motion.isDeviceMotionAvailable, on != motion.isDeviceMotionActive else { return }
+        if on {
+            motion.deviceMotionUpdateInterval = 1 / Self.rate
+            queue.addOperation { [self] in detector = SwingDetector() }
+            motion.startDeviceMotionUpdates(to: queue) { [weak self] sample, _ in
+                guard let self, let sample else { return }
+                self.handle(sample)
+            }
+        } else {
+            motion.stopDeviceMotionUpdates()
         }
+        write(event: ["type": "detection", "t": Self.ms(Date()), "on": on])
     }
 
     func stop() {
@@ -161,7 +174,7 @@ final class SwingRecorder {
 
     // MARK: Files
 
-    private func openFiles(roundId: String, now: TimeInterval) {
+    private func openFiles(roundId: String, now: TimeInterval, detecting: Bool) {
         let folder = Self.recordingsFolder.appending(path: "\(Self.stamp(now))-\(roundId.prefix(8))")
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -182,7 +195,7 @@ final class SwingRecorder {
             "crown": device.crownOrientation == .left ? "left" : "right",
             "model": Self.model, "os": device.systemVersion,
             "detector": ["minRotation": SwingDetector.minRotation, "minImpact": SwingDetector.minImpact],
-            "motion": Self.recordsMotion
+            "motion": Self.recordsMotion, "detecting": detecting
         ])
     }
 

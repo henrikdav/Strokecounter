@@ -57,12 +57,21 @@ def main(folder):
         acc = max(math.hypot(x[1], x[2], x[3]) for x in window)
         print(f"  {at:8.1f} s  hole {s['hole']:>2} {s['club']:<8} peak rotation {math.hypot(rot[4], rot[5], rot[6]):5.1f} rad/s "
               f"{at - rot[0]:5.1f} s before, peak acceleration {acc:4.1f} g  [{how}, {swing_text}{position}]")
-    battery = [e for e in events if e['type'] == 'battery' and e.get('level', -1) >= 0]
-    if len(battery) > 1:
-        hours = (battery[-1]['t'] - battery[0]['t']) / 3_600_000
-        used = (battery[0]['level'] - battery[-1]['level']) * 100
-        print(f"battery {battery[0]['level']:.0%} -> {battery[-1]['level']:.0%} over {hours * 60:.0f} min: "
-              f"{used / hours:.0f} % per hour" if hours > 0 else '')
+    battery = [e for e in events if e['type'] == 'battery' and e.get('level', -1) >= 0 and e.get('state') != 'charging']
+    # Per stretch with swing detection on or off (switched in the phone's Settings), so the two can be compared.
+    switches = [e for e in events if e['type'] == 'detection']
+    edges = [start['t0']] + [e['t'] for e in switches] + [float('inf')]
+    states = [start.get('detecting', True)] + [e['on'] for e in switches]
+    for (begin, end), on in zip(zip(edges, edges[1:]), states):
+        part = [b for b in battery if begin <= b['t'] <= end]
+        if len(part) < 2:
+            continue
+        hours = (part[-1]['t'] - part[0]['t']) / 3_600_000
+        used = (part[0]['level'] - part[-1]['level']) * 100
+        if hours > 0:
+            label = 'swing detection on' if on else 'swing detection off'
+            print(f"battery, {label}: {part[0]['level']:.0%} -> {part[-1]['level']:.0%} over {hours * 60:.0f} min: "
+                  f"{used / hours:.0f} % per hour")
     if swings:
         count = lambda kind: sum(e['type'] == kind for e in events)
         print(f"{len(swings)} swings found; club list shown {count('swing-list')} times, "

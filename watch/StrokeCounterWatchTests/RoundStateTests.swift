@@ -12,9 +12,10 @@ final class RoundStateTests: XCTestCase {
                               strokes: [Int: [[String: Any]]] = [:], removed: [String] = [], v: Int? = 2,
                               extra: [Int: Int] = [:], marked: [Int: [String: Double]] = [:],
                               bag: [String] = ["Driver", "7i", "Putter"], pars: [Int: Int] = [:], tee: [Int: String] = [:],
-                              sent: Double? = nil) -> String {
+                              sent: Double? = nil, swingDetection: Bool? = nil) -> String {
         var snapshot: [String: Any] = ["bag": bag, "club": "7i"]
         if let sent { snapshot["sent"] = sent }
+        if let swingDetection { snapshot["swingDetection"] = swingDetection }
         if let v { snapshot["v"] = v }
         if let roundId {
             var round: [String: Any] = [
@@ -447,5 +448,12 @@ final class RoundStateTests: XCTestCase {
         var s = state(snapshotJSON(currentHole: 4, sent: 2000))
         XCTAssertEqual(s.receive(snapshotJSON: snapshotJSON(currentHole: 6)), .applied)
         XCTAssertEqual(s.currentHole, 6)
+    }
+
+    func testSwingDetectionIsOnUnlessThePhoneSaysOff() {
+        XCTAssertTrue(state(snapshotJSON()).swingDetection)
+        XCTAssertTrue(state(snapshotJSON(swingDetection: true)).swingDetection)
+        XCTAssertFalse(state(snapshotJSON(swingDetection: false)).swingDetection)
+        XCTAssertTrue(RoundState().swingDetection, "no snapshot yet")
     }
 }
