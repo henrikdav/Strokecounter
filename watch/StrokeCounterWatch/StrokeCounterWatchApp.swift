@@ -48,8 +48,8 @@ struct RootView: View {
                 store.setAppActive(phase != .background)
                 if phase == .active { showSwingClubs() }
             }
-            // A swing found while the screen is up (the wrist was not lowered) shows the list at once.
-            .onChange(of: store.swingTime) { _, _ in if scenePhase == .active { showSwingClubs() } }
+            // A swing found, or walked away from, while the screen is up shows the list at once.
+            .onChange(of: store.swingChanges) { _, _ in if scenePhase == .active { showSwingClubs() } }
             .alert("Update the watch app", isPresented: Binding(get: { store.phoneIsNewer }, set: { store.phoneIsNewer = $0 })) {
                 Button("OK") {}
             } message: {
