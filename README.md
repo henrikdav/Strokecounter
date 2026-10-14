@@ -166,7 +166,8 @@ blocks the screen in automated runs.
 
 - **Swing detection:** while a round's workout runs, the watch finds full swings in its motion
   (`SwingDetector.swift`). A stroke logged within a minute of a swing gets the swing's position, and raising the
-  wrist in that minute shows the club list: a tap logs the stroke. Putts and short chips are not found.
+  wrist in that minute shows the club list: a tap logs the stroke. Putts and short chips are not found. It can be
+  switched off in the phone's Settings to save the watch's battery (it stops reading the motion sensor).
 - **Swing recordings:** the watch logs each round's swings found, how strokes were logged, GPS fixes and its battery
   level every minute (`events.jsonl`), plus every motion sample (`motion.bin`, 50 Hz) when collecting data to tune
   the detector (`SwingRecorder.recordsMotion`, off now), and sends them to the phone when the workout ends

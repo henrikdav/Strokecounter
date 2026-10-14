@@ -34,6 +34,7 @@ final class WatchStore: ObservableObject {
         session.onRecording = { [weak self] folder in self?.sync.sendRecording(folder) }
         session.onSwingChange = { [weak self] in self?.swingTime = self?.session.lastSwing?.time }
         sync.activeRecording = { [weak self] in self?.session.recorder.currentFolder }
+        session.setSwingDetection(state.swingDetection)
         session.roundChanged(id: state.round?.id, finished: state.isRoundFinished)
         sync.activate()
     }
@@ -180,6 +181,7 @@ final class WatchStore: ObservableObject {
             phoneIsNewer = false
             defaults.set(Data(json.utf8), forKey: "snapshot")
             saveOutbox()
+            session.setSwingDetection(state.swingDetection)
             session.roundChanged(id: state.round?.id, finished: state.isRoundFinished)
         case .newerVersion:
             phoneIsNewer = true

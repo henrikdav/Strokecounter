@@ -303,6 +303,10 @@
                     font-size: 15px; text-align: right; background: var(--paper); color: var(--ink); }
   .tee-over-hint { margin-top: 4px; }
   .delete-link { margin-top: 18px; }
+  .settings-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .toggle { flex: none; min-width: 46px; padding: 3px 10px; border-radius: 999px; border: 2px solid var(--line);
+            font-size: 13px; font-weight: 800; color: var(--mute); text-align: center; }
+  .toggle.on { background: var(--fairway); border-color: var(--fairway); color: var(--white); }
   .build-info { margin: 14px 0 0; text-align: center; font-size: 12px; color: var(--mute); line-height: 1.5; }
   .build-differs { color: var(--flag); font-weight: 700; }
   .scan-btn { width: 100%; margin: 4px 0 6px; }
@@ -468,7 +472,8 @@ function normalizeDb(data) {
       ? MODS.map(m => m.key).filter(k => data.modFlags.includes(k))
       : (data.chipFlag ? ['chip'] : []),
     activeRoundId: data.activeRoundId || null,
-    watchRoundId: data.watchRoundId || null
+    watchRoundId: data.watchRoundId || null,
+    swingDetection: data.swingDetection !== false   // on unless switched off in Settings
   };
 }
 
@@ -484,7 +489,7 @@ function loadDb() {
       if (loaded) return loaded;
     }
   } catch (err) { /* ignore and start fresh */ }
-  return { courses: [], rounds: [], allowance: 100, activeClubs: [...CLUBS], club: CLUBS[0], modFlags: [], activeRoundId: null, watchRoundId: null };
+  return { courses: [], rounds: [], allowance: 100, activeClubs: [...CLUBS], club: CLUBS[0], modFlags: [], activeRoundId: null, watchRoundId: null, swingDetection: true };
 }
 
 function saveDb() {
@@ -1716,6 +1721,9 @@ function renderSheet() {
           <button class="settings-item" data-action="edit-bag">My bag</button>
           <button class="settings-item" data-action="export">Copy all data as JSON</button>
           <button class="settings-item" data-action="restore">Restore from backup</button>
+          ${watchBridge ? `<button class="settings-item settings-toggle" data-action="toggle-swing-detection" role="switch" aria-checked="${db.swingDetection !== false}">
+            <span>Swing detection on the watch</span><span class="toggle${db.swingDetection !== false ? ' on' : ''}">${db.swingDetection !== false ? 'On' : 'Off'}</span>
+          </button>` : ''}
         </div>
         ${buildInfoHtml()}
         <button class="link" data-action="close-sheet">Close</button>
@@ -2679,6 +2687,7 @@ function confirmRestore() {
   const backup = sheet.backup;
   db = normalizeDb({
     allowance: db.allowance, club: db.club, modFlags: db.modFlags, activeClubs: db.activeClubs,
+    swingDetection: db.swingDetection,
     ...backup,
     activeRoundId: null
   });
@@ -2744,7 +2753,8 @@ function teeClubs(round) {
 function sendWatchSnapshot() {
   const round = db.rounds.find(r => r.id === db.watchRoundId) || null;
   // `sent` lets the watch ignore an older snapshot that arrives after a newer one (they travel on several channels).
-  const snapshot = { v: WATCH_PROTOCOL, sent: Date.now(), round: null, bag: db.activeClubs, club: db.club };
+  const snapshot = { v: WATCH_PROTOCOL, sent: Date.now(), round: null, bag: db.activeClubs, club: db.club,
+                     swingDetection: db.swingDetection !== false };
   if (round) {
     const course = round.courseId ? db.courses.find(c => c.id === round.courseId) : null;
     const hasExtras = strokesReceived(round, round.startHole || 1) !== null;
@@ -3273,6 +3283,9 @@ app.addEventListener('click', event => {
       break;
     case 'export': exportData(); if (sheet && sheet.type === 'settings') { sheet = null; render(); } break;
     case 'settings': sheet = { type: 'settings' }; render(); break;
+    // Off saves the watch's battery: it stops reading the motion sensor, so no club list or swing position.
+    // Sent with the snapshot, so it applies on the watch at once, also mid-round.
+    case 'toggle-swing-detection': db.swingDetection = db.swingDetection === false; saveDb(); render(); break;
     case 'restore': sheet = { type: 'restore' }; render(); break;
     case 'check-restore': checkRestore(document.getElementById('restore-text').value); break;
     case 'confirm-restore': confirmRestore(); break;

@@ -18,6 +18,9 @@ struct RoundState: Equatable {
 
     var bag: [String] { snapshot?.bag ?? [] }
 
+    // Whether to detect swings (the phone's Settings); on unless switched off.
+    var swingDetection: Bool { snapshot?.swingDetection ?? true }
+
     // The club selected on the phone, used when the bag is empty.
     var phoneClub: String? { snapshot?.club }
 
