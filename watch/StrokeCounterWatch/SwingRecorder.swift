@@ -4,23 +4,27 @@ import Foundation
 import WatchKit
 
 // Follows the watch's motion while the round's golf workout runs: Core Motion's device motion at 50 Hz goes
-// through the SwingDetector, and each swing found is passed on (onSwing). For testing the detector it also records
-// everything (recordsData): motion.bin with every sample, and events.jsonl with a header, each swing found, every
-// stroke logged on the watch and how (the answer key), the GPS fixes and the battery level every minute. When the workout ends, the two files go
-// to the phone (WatchBridge saves them under Documents/SwingRecordings) and are deleted here once delivered.
+// through the SwingDetector, and each swing found is passed on (onSwing). It also records the round
+// (recordsEvents): events.jsonl with a header, each swing found, every stroke logged on the watch and how, the GPS
+// fixes and the battery level every minute; and, when collecting data to tune the detector (recordsMotion),
+// motion.bin with every sample. When the workout ends, the files go to the phone (WatchBridge saves them under
+// Documents/SwingRecordings) and are deleted here once delivered.
 //
 // motion.bin: one 40-byte record per sample, little-endian Float32 × 10: seconds since the header's t0, user
 // acceleration x y z (g), rotation rate x y z (rad/s), gravity x y z (g).
 final class SwingRecorder {
-    // While the detector is being tested, every round with a running workout is recorded too.
-    static let recordsData = true
+    // The events of every round with a running workout, to follow the detector and the battery.
+    static let recordsEvents = true
+    // Every motion sample too: only when collecting data to tune the detector. Off since 2026-10-14, when the
+    // detector had five rounds of data and the battery use (about 20 % an hour) was the thing to cut.
+    static let recordsMotion = false
     // 50 Hz: on the recorded rounds the detector found 20 of 27 shots at 50 Hz against 21 at 100 Hz, for half the
     // work (battery).
     static let rate = 50.0
 
     // A swing was found: when (seconds since 1970) and how strong. Called on the main queue.
     var onSwing: ((Date, SwingDetector.Swing) -> Void)?
-    // A finished recording: the folder with motion.bin and events.jsonl.
+    // A finished recording: the folder with events.jsonl (and motion.bin when recorded).
     var onFinished: ((URL) -> Void)?
 
     private let motion = CMMotionManager()
@@ -50,7 +54,7 @@ final class SwingRecorder {
         let now = Date().timeIntervalSince1970
         t0 = now
         bootOffset = now - ProcessInfo.processInfo.systemUptime
-        if Self.recordsData {
+        if Self.recordsEvents {
             openFiles(roundId: roundId, now: now)
             startBatteryLog()
         }
@@ -161,9 +165,11 @@ final class SwingRecorder {
         let folder = Self.recordingsFolder.appending(path: "\(Self.stamp(now))-\(roundId.prefix(8))")
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            FileManager.default.createFile(atPath: folder.appending(path: "motion.bin").path, contents: nil)
+            if Self.recordsMotion {
+                FileManager.default.createFile(atPath: folder.appending(path: "motion.bin").path, contents: nil)
+                motionFile = try FileHandle(forWritingTo: folder.appending(path: "motion.bin"))
+            }
             FileManager.default.createFile(atPath: folder.appending(path: "events.jsonl").path, contents: nil)
-            motionFile = try FileHandle(forWritingTo: folder.appending(path: "motion.bin"))
             eventsFile = try FileHandle(forWritingTo: folder.appending(path: "events.jsonl"))
         } catch {
             return
@@ -175,7 +181,8 @@ final class SwingRecorder {
             "wrist": device.wristLocation == .left ? "left" : "right",
             "crown": device.crownOrientation == .left ? "left" : "right",
             "model": Self.model, "os": device.systemVersion,
-            "detector": ["minRotation": SwingDetector.minRotation, "minImpact": SwingDetector.minImpact]
+            "detector": ["minRotation": SwingDetector.minRotation, "minImpact": SwingDetector.minImpact],
+            "motion": Self.recordsMotion
         ])
     }
 

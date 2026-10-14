@@ -172,9 +172,10 @@ the watch's clock.
 
 ## Swing recordings (watch → phone, test build)
 
-While the round's workout runs, `SwingRecorder.swift` follows the watch's motion for swing detection and, while
-the detector is tested, records it, with the swings found and how each stroke was logged. When
-the workout ends, the recording's two files go to the phone with `transferFile`, metadata `{ recording, file }`;
+While the round's workout runs, `SwingRecorder.swift` follows the watch's motion for swing detection and logs
+the swings found, how each stroke was logged, GPS fixes and the battery (`events.jsonl`); the motion itself
+(`motion.bin`) only when collecting data to tune the detector. When the workout ends, the recording's files go
+to the phone with `transferFile`, metadata `{ recording, file }`;
 the watch deletes each file once delivered and resends what is left when the app starts again. This is separate
 from the round sync above and has no version: it is a test tool and may change or go. Format and an inspector:
 `tools/swing/inspect.py`.

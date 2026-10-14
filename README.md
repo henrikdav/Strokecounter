@@ -159,11 +159,12 @@ blocks the screen in automated runs.
 - **Swing detection:** while a round's workout runs, the watch finds full swings in its motion
   (`SwingDetector.swift`). A stroke logged within a minute of a swing gets the swing's position, and raising the
   wrist in that minute shows the club list: a tap logs the stroke. Putts and short chips are not found.
-- **Swing recordings (test build):** the watch also records its motion at 50 Hz, its battery level, what it found and what was
-  logged, and sends the recording to the phone when the workout ends
-  (`Documents/SwingRecordings`). Copy it to the Mac with `xcrun devicectl device copy from … --domain-type
-  appDataContainer --domain-identifier com.henrikdav.StrokeCounter --source Documents/SwingRecordings/<name>/motion.bin`
-  (and `events.jsonl`), then `tools/swing/inspect.py <folder>`.
+- **Swing recordings:** the watch logs each round's swings found, how strokes were logged, GPS fixes and its battery
+  level every minute (`events.jsonl`), plus every motion sample (`motion.bin`, 50 Hz) when collecting data to tune
+  the detector (`SwingRecorder.recordsMotion`, off now), and sends them to the phone when the workout ends
+  (`Documents/SwingRecordings`). Copy them to the Mac with `xcrun devicectl device copy from … --domain-type
+  appDataContainer --domain-identifier com.henrikdav.StrokeCounter --source Documents/SwingRecordings/<name>/events.jsonl`,
+  then `tools/swing/inspect.py <folder>`.
 
 The full protocol (every message, field and rule, and how versions work) is in
 [docs/watch-sync.md](docs/watch-sync.md).
