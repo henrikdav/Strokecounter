@@ -38,6 +38,7 @@ property-list types.
 | Watch → phone | `sendMessage` with reply | `{ "type": "snapshot-request" }` → `{ "snapshot": "<JSON>" }` | Watch session activates, the phone becomes reachable, or the watch app becomes active (wrist raised). The phone answers from the last snapshot it saved, so this also works when the watch wakes the iPhone app in the background |
 | Watch → phone | `transferUserInfo` | `{ "events": "<JSON array of events>" }` | Every new event; the whole outbox again when the watch session activates |
 | Watch → phone | `sendMessage`, no reply | `{ "events": "<JSON array of events>" }` | Every new event, when the phone is reachable, so it shows up within a second |
+| Watch → phone | `updateApplicationContext` | `{ "watchApp": { "version", "build", "commit" } }` | When the watch session activates: which build the watch app is, shown in the phone's Settings next to the phone's own (not part of the round sync, no version) |
 | Phone → watch | `sendMessage` with reply | `{ "type": "flush" }` → `{ "events": "<JSON array of the outbox>" }` | iPhone app comes to the foreground, its session activates, or the watch becomes reachable |
 
 `transferUserInfo` is queued by the system and delivered even when the receiving app is in the background or not

@@ -303,6 +303,8 @@
                     font-size: 15px; text-align: right; background: var(--paper); color: var(--ink); }
   .tee-over-hint { margin-top: 4px; }
   .delete-link { margin-top: 18px; }
+  .build-info { margin: 14px 0 0; text-align: center; font-size: 12px; color: var(--mute); line-height: 1.5; }
+  .build-differs { color: var(--flag); font-weight: 700; }
   .scan-btn { width: 100%; margin: 4px 0 6px; }
   .scan-note { margin: 4px 0 10px; }
   /* A field a scorecard scan could not read, until it is filled in. */
@@ -1715,6 +1717,7 @@ function renderSheet() {
           <button class="settings-item" data-action="export">Copy all data as JSON</button>
           <button class="settings-item" data-action="restore">Restore from backup</button>
         </div>
+        ${buildInfoHtml()}
         <button class="link" data-action="close-sheet">Close</button>
       </div>`;
   }
@@ -2783,6 +2786,28 @@ function sendWatchSnapshot() {
 
 // Asks the iOS app to start the watch app for the round (HKHealthStore.startWatchApp), so it doesn't have to be
 // opened by hand. Only when the player starts or continues a round, not when the app reopens one by itself.
+// Which builds the phone and the watch run, from the iOS app (setAppInfo: { phone: { version, build, commit },
+// watch: { … } or null until the watch has reported). Shown at the bottom of Settings, so a watch left on another
+// build is seen before a round. Nothing in a browser.
+let appInfo = null;
+
+function setAppInfo(info) {
+  appInfo = info;
+  if (sheet && sheet.type === 'settings') render();
+}
+
+function buildInfoHtml() {
+  if (!appInfo || !appInfo.phone) return '';
+  const name = b => `${esc(b.version)} (${esc(b.build)})`;
+  const { phone, watch } = appInfo;
+  const same = watch && watch.build === phone.build && watch.commit === phone.commit;
+  const watchLine = !watch ? 'Watch: not heard from yet'
+    : same ? `Watch ${name(watch)} ✓`
+    : `Watch ${name(watch)}${watch.commit ? ' · ' + esc(watch.commit) : ''}. Update it in the Watch app.`;
+  return `<p class="build-info">Stroke Counter ${name(phone)}${phone.commit ? ' · ' + esc(phone.commit) : ''}<br>
+          <span class="${watch && !same ? 'build-differs' : ''}">${watchLine}</span></p>`;
+}
+
 function startWatchApp() {
   if (watchBridge) watchBridge.postMessage({ type: 'start-watch-app' });
 }

@@ -80,6 +80,8 @@ final class SyncClient: NSObject, WCSessionDelegate {
             // Anything made before the session was ready goes now; the phone ignores repeats.
             self.send(self.outbox())
             if !self.resentRecordings { self.resentRecordings = true; self.resendRecordings() }
+            // Which build this watch app is, for the phone's Settings (the latest only, so the context).
+            try? session.updateApplicationContext(["watchApp": AppInfo.dictionary])
         }
     }
 

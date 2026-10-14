@@ -98,6 +98,14 @@ for the golf workout: the iPhone app launches the watch app with one when a roun
 (`HKHealthStore.startWatchApp`), and the watch app runs the workout session during the round. Nothing is saved
 to Health.
 
+### Build numbers
+
+Every build of the iOS and watch apps is numbered from git by `ios/stamp-build.sh` (run after each build, before
+signing): the build number is the number of commits, and `StrokeCounterCommit` in Info.plist the short commit id,
+with `+` for uncommitted changes. The phone's Settings shows its build and the watch's (the watch reports it), red
+when they differ. Install the phone and the watch from the same build: the iOS app carries a copy of the watch
+app, and the watch can switch back to that copy.
+
 ### Build and install on devices
 
 Open `ios/StrokeCounter.xcodeproj` in Xcode and run the `StrokeCounter` or `StrokeCounterWatch` scheme, or from

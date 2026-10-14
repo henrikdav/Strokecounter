@@ -8,7 +8,8 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "1"   # replaced in the built app by the commit count (stamp-build.sh)
+    ENABLE_USER_SCRIPT_SANDBOXING: NO   # stamp-build.sh reads the git repository
 targets:
   StrokeCounter:
     type: application
@@ -22,10 +23,15 @@ targets:
         com.apple.developer.healthkit: true
     sources:
       - StrokeCounter
+      - Shared
       # Temporary scaffold: the web app is copied into the bundle as a folder (web/index.html).
       - path: ../web
         type: folder
         buildPhase: resources
+    postBuildScripts:
+      - name: Stamp build number and commit
+        script: '"$SRCROOT/stamp-build.sh"'
+        basedOnDependencyAnalysis: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.henrikdav.StrokeCounter
@@ -48,6 +54,7 @@ targets:
       testTargets: [StrokeCounterWatchTests]
     sources:
       - ../watch/StrokeCounterWatch
+      - Shared
     # HealthKit, only to run a golf workout session during a round (nothing is saved to Health).
     entitlements:
       path: ../watch/StrokeCounterWatch/StrokeCounterWatch.entitlements
@@ -57,6 +64,10 @@ targets:
       path: ../watch/StrokeCounterWatch/Info.plist
       properties:
         WKBackgroundModes: [workout-processing]
+    postBuildScripts:
+      - name: Stamp build number and commit
+        script: '"$SRCROOT/stamp-build.sh"'
+        basedOnDependencyAnalysis: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.henrikdav.StrokeCounter.watchkitapp
