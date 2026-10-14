@@ -19,7 +19,8 @@ RECORD = struct.Struct('<10f')   # t, user acceleration xyz (g), rotation rate x
 def load(folder):
     folder = Path(folder)
     events = [json.loads(line) for line in (folder / 'events.jsonl').read_text().splitlines() if line.strip()]
-    data = (folder / 'motion.bin').read_bytes()
+    motion = folder / 'motion.bin'   # only in recordings made to tune the detector
+    data = motion.read_bytes() if motion.exists() else b''
     samples = [RECORD.unpack_from(data, i) for i in range(0, len(data) - RECORD.size + 1, RECORD.size)]
     return events, samples
 
@@ -27,13 +28,16 @@ def load(folder):
 def main(folder):
     events, samples = load(folder)
     start = next((e for e in events if e['type'] == 'start'), None)
-    if not start or not samples:
-        sys.exit('no header or no motion samples')
+    if not start:
+        sys.exit('no header')
     print('header:', {k: v for k, v in start.items() if k != 'type'})
-    duration = samples[-1][0] - samples[0][0]
-    gaps = [b[0] - a[0] for a, b in zip(samples, samples[1:])]
-    print(f'{len(samples)} samples over {duration / 60:.1f} min, {len(samples) / max(duration, 1e-9):.1f} Hz, '
-          f'longest gap {max(gaps, default=0):.2f} s')
+    if samples:
+        duration = samples[-1][0] - samples[0][0]
+        gaps = [b[0] - a[0] for a, b in zip(samples, samples[1:])]
+        print(f'{len(samples)} samples over {duration / 60:.1f} min, {len(samples) / max(duration, 1e-9):.1f} Hz, '
+              f'longest gap {max(gaps, default=0):.2f} s')
+    else:
+        print('no motion samples (events only)')
     t0 = start['t0'] / 1000
     removed = {e['id'] for e in events if e['type'] == 'remove'}
     strokes = [e for e in events if e['type'] == 'stroke' and e['id'] not in removed]
@@ -47,7 +51,7 @@ def main(folder):
         position = ', swing position' if s.get('swingPosition') else ''
         window = [x for x in samples if at - 30 <= x[0] <= at]
         if not window:
-            print(f"  {at:8.1f} s  hole {s['hole']:>2} {s['club']:<8} no samples before it")
+            print(f"  {at:8.1f} s  hole {s['hole']:>2} {s['club']:<8} [{how}, {swing_text}{position}]")
             continue
         rot = max(window, key=lambda x: math.hypot(x[4], x[5], x[6]))
         acc = max(math.hypot(x[1], x[2], x[3]) for x in window)
