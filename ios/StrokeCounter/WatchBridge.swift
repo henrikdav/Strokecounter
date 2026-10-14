@@ -43,6 +43,7 @@ final class WatchBridge: NSObject, WKScriptMessageHandler, WCSessionDelegate {
             // The page has (re)loaded: hand it anything that arrived while it was not running.
             webReady = true
             deliverPending()
+            deliverAppInfo()
         case "snapshot":
             guard let json = body["json"] as? String else { return }
             lastSnapshot = json
@@ -176,10 +177,37 @@ final class WatchBridge: NSObject, WKScriptMessageHandler, WCSessionDelegate {
         }
     }
 
+    // MARK: Builds
+
+    // The watch app's version, build and commit, as it last reported them (its application context).
+    private var watchApp = UserDefaults.standard.dictionary(forKey: "watchApp") as? [String: String]
+
+    func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
+        guard let info = context["watchApp"] as? [String: String] else { return }
+        DispatchQueue.main.async {
+            self.watchApp = info
+            UserDefaults.standard.set(info, forKey: "watchApp")
+            self.deliverAppInfo()
+        }
+    }
+
+    // Shows the web app which builds the phone and the watch run (setAppInfo, in Settings).
+    private func deliverAppInfo() {
+        guard webReady, let webView else { return }
+        let info: [String: Any] = ["phone": AppInfo.dictionary, "watch": watchApp ?? NSNull()]
+        guard let data = try? JSONSerialization.data(withJSONObject: info), let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("setAppInfo(\(json))")
+    }
+
     // MARK: Session lifecycle
 
     func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
         DispatchQueue.main.async {
+            if let info = session.receivedApplicationContext["watchApp"] as? [String: String] {
+                self.watchApp = info
+                UserDefaults.standard.set(info, forKey: "watchApp")
+                self.deliverAppInfo()
+            }
             self.pushSnapshot()
             self.askWatchToResend()
         }

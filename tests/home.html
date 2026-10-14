@@ -100,6 +100,13 @@ test(async () => {
   // Settings
   await app.click('[data-action=settings]');
   ok('the gear opens settings with the four items', ['courses', 'edit-bag', 'export', 'restore'].every(a => app.q(`.sheet [data-action=${a}]`)));
+  ok('no build line outside the iOS app', !app.q('.build-info'));
+  app.E("setAppInfo({ phone: { version: '0.1', build: '412', commit: '1534b1b' }, watch: null })");
+  ok('the iOS app shows its build, and when the watch has not reported', /Stroke Counter 0\.1 \(412\) · 1534b1b/.test(app.q('.build-info').textContent) && /Watch: not heard from yet/.test(app.q('.build-info').textContent));
+  app.E("setAppInfo({ phone: { version: '0.1', build: '412', commit: '1534b1b' }, watch: { version: '0.1', build: '412', commit: '1534b1b' } })");
+  ok('the same build on the watch is ticked', /Watch 0\.1 \(412\) ✓/.test(app.q('.build-info').textContent) && !app.q('.build-differs'));
+  app.E("setAppInfo({ phone: { version: '0.1', build: '412', commit: '1534b1b' }, watch: { version: '0.1', build: '409', commit: 'ab12cd3' } })");
+  ok('another build on the watch is shown in red with what to do', /Watch 0\.1 \(409\) · ab12cd3\. Update it in the Watch app/.test(app.q('.build-differs').textContent));
   await app.click('.sheet [data-action=edit-bag]');
   ok('My bag opens the bag', app.E('sheet && sheet.type') === 'bag');
   app.E("sheet = { type: 'settings' }; render();");
