@@ -1,10 +1,10 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>My clubs</title>
+<title>Club statistics</title>
 <pre id="out"></pre>
 <script src="harness.js"></script>
 <script>
-// My clubs (web/my-clubs.js): which shots count, a club's normal length, mishits, shots onto the green, the start
+// Club statistics (web/club-stats.js): which shots count, a club's normal length, mishits, shots onto the green, the start
 // date, and the screen behind the row on the home screen. The feature only reads the rounds.
 test(async () => {
   const now = Date.now();
@@ -34,13 +34,13 @@ test(async () => {
     makeRound('open', { holes: holes([shot('7i', 300)]) })   // not finished: does not count yet
   ] } });
 
-  const shots = app.E('MyClubs.collectShots(db.rounds, CLUBS)');
+  const shots = app.E('ClubStats.collectShots(db.rounds, CLUBS)');
   ok('only full swings with a distance count, from finished rounds', shots.length === counted.length,
     JSON.stringify(shots.map(s => Math.round(s.m))));
   ok('the distance is to where the next stroke was played', Math.abs(shots[0].m - 100) < 0.5, shots[0].m);
   ok('a shot followed by a putt is onto the green', shots.filter(s => s.onGreen).length === 1 && Math.round(shots.find(s => s.onGreen).m) === 60);
 
-  const a = app.E('MyClubs.analyse(db.rounds)');
+  const a = app.E('ClubStats.analyse(db.rounds)');
   ok("the club's normal length: median without the glitch or the shot onto the green", Math.round(a.normal['7i']) === 115, a.normal['7i']);
   ok('a GPS glitch over twice the normal length is left out', a.shots.length === counted.length - 1 && !a.shots.some(s => s.m > 300));
   const solid = a.shots.filter(s => s.solid).map(s => Math.round(s.m)).sort((x, y) => x - y);
@@ -49,32 +49,32 @@ test(async () => {
   ok('one period, with 6 of 7 shots solid', a.periods.length === 1 && Math.round(a.periods[0].solid * 7) === 6, JSON.stringify(a.periods));
   ok('the bag lists the club with its normal length', a.bag.length === 1 && a.bag[0].club === '7i' && Math.round(a.bag[0].med) === 115, JSON.stringify(a.bag));
 
-  ok('a start date after every shot leaves none', app.E(`MyClubs.analyse(db.rounds, { from: ${now} }).shots.length`) === 0);
+  ok('a start date after every shot leaves none', app.E(`ClubStats.analyse(db.rounds, { from: ${now} }).shots.length`) === 0);
 
   // The home screen and the screen.
-  const row = app.q('[data-action="my-clubs"]');
-  ok('the home screen has a My clubs row with the latest share of solid shots', row && /My clubs/.test(row.textContent) && /9 of 10 solid shots/.test(row.textContent), row && row.textContent);
-  await app.click('[data-action="my-clubs"]');
-  ok('the row opens My clubs', app.E('view') === 'my-clubs' && /My clubs/.test(app.q('.top h2').textContent));
-  ok('it shows the cards, the bag and the club', app.qa('.mc-card').length === 3 && app.qa('.mc-panel').length === 2 && app.qa('.mc-chip[data-club="7i"]').length === 1);
+  const row = app.q('[data-action="club-stats"]');
+  ok('the home screen has a Club statistics row with the latest share of solid shots', row && /Club statistics/.test(row.textContent) && /9 of 10 solid shots/.test(row.textContent), row && row.textContent);
+  await app.click('[data-action="club-stats"]');
+  ok('the row opens Club statistics', app.E('view') === 'club-stats' && /Club statistics/.test(app.q('.top h2').textContent));
+  ok('it shows the cards, the bag and the club', app.qa('.cs-card').length === 3 && app.qa('.cs-panel').length === 2 && app.qa('.cs-chip[data-club="7i"]').length === 1);
 
   const before = localStorage.getItem(STORAGE_KEY);
-  const input = app.q('#my-clubs-from');
+  const input = app.q('#club-stats-from');
   input.value = new Date(now + DAY).toISOString().slice(0, 10);
   input.dispatchEvent(new Event('change', { bubbles: true }));
   await wait(20);
-  ok('a start date is kept under its own key', JSON.parse(localStorage.getItem('golf-strokes.my-clubs.v1')).from === input.value);
+  ok('a start date is kept under its own key', JSON.parse(localStorage.getItem('golf-strokes.club-stats.v1')).from === input.value);
   ok('and the screen follows it', /No shots with a distance since that date/.test(app.q('main').textContent));
   ok("the rounds' data is not touched", localStorage.getItem(STORAGE_KEY) === before);
-  await app.click('[data-action="my-clubs-all"]');
-  ok('All shows every shot again', app.qa('.mc-card').length === 3 && JSON.parse(localStorage.getItem('golf-strokes.my-clubs.v1')).from === null);
+  await app.click('[data-action="club-stats-all"]');
+  ok('All shows every shot again', app.qa('.cs-card').length === 3 && JSON.parse(localStorage.getItem('golf-strokes.club-stats.v1')).from === null);
 
-  await app.click('[data-action="my-clubs-back"]');
-  ok('Back goes home', app.E('view') === 'list' && !!app.q('[data-action="my-clubs"]'));
+  await app.click('[data-action="club-stats-back"]');
+  ok('Back goes home', app.E('view') === 'list' && !!app.q('[data-action="club-stats"]'));
 
   // Without any distance yet, the row is still there, without a number.
   const empty = await loadApp({ data: { courses: [], rounds: [] } });
-  const bare = empty.q('[data-action="my-clubs"]');
-  ok('with no shots the row just says My clubs', bare && bare.textContent.replace(/\s+/g, '') === 'Myclubs›', bare && bare.textContent);
+  const bare = empty.q('[data-action="club-stats"]');
+  ok('with no shots the row just says Club statistics', bare && bare.textContent.replace(/\s+/g, '') === 'Clubstatistics›', bare && bare.textContent);
 });
 </script>

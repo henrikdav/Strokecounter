@@ -1,6 +1,6 @@
 'use strict';
 
-// My clubs: how far each club goes and whether the player is getting better, over every finished round. Built to
+// Club statistics: how far each club goes and whether the player is getting better, over every finished round. Built to
 // be easy to change or remove: it lives in this file alone, only reads the rounds, and keeps its own setting (the
 // start date) under its own storage key. Removing it = deleting this file and its <script> line in index.html.
 //
@@ -17,7 +17,7 @@
 // - A mishit is a shot shorter than 3/4 of its club's normal length. A shot followed by a putt went onto the green:
 //   the hole set its length, so it is never a mishit and counts for neither length nor consistency.
 (function () {
-  const KEY = 'golf-strokes.my-clubs.v1';
+  const KEY = 'golf-strokes.club-stats.v1';
   const MIN_SHOTS = 5;    // a club with fewer shots is shown faded, and left out of the cards
   const SOLID = 0.75;     // shorter than this share of the club's normal length is a mishit
   const WINDOW = 15;      // shots behind each point of a club's band
@@ -144,7 +144,7 @@
     const body = values.map((v, i) => {
       const h = Math.max(3, (v.y - lower) / (max - lower || 1) * (base - top));
       const x = x0 + i * (bw + gap), last = i === values.length - 1;
-      return svgEl('rect', { x, y: base - h, width: bw, height: h, rx: 5, fill: last ? 'var(--fairway)' : 'var(--mc-band)' }) +
+      return svgEl('rect', { x, y: base - h, width: bw, height: h, rx: 5, fill: last ? 'var(--fairway)' : 'var(--cs-band)' }) +
         svgEl('text', { x: x + bw / 2, y: base - h - 4, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700, fill: last ? 'var(--fairway)' : 'var(--mute)' }, fmt(v.y)) +
         svgEl('text', { x: x + bw / 2, y: H - 3, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--mute)' }, v.label);
     }).join('');
@@ -153,10 +153,10 @@
 
   function card({ label, value, good, line, chart }) {
     return `
-        <div class="mc-card">
-          <div class="mc-label">${esc(label)}</div>
-          <div class="mc-value${good ? ' good' : ''}">${esc(value)}</div>
-          <div class="mc-line">${esc(line)}</div>
+        <div class="cs-card">
+          <div class="cs-label">${esc(label)}</div>
+          <div class="cs-value${good ? ' good' : ''}">${esc(value)}</div>
+          <div class="cs-line">${esc(line)}</div>
           ${chart}
         </div>`;
   }
@@ -209,7 +209,7 @@
       const y = top + i * row + row / 2;
       body += `<g opacity="${s.n < MIN_SHOTS ? 0.4 : 1}">` +
         svgEl('text', { x: 0, y: y + 5, 'font-size': 15, 'font-weight': 700, fill: 'var(--ink)' }, s.club) +
-        svgEl('rect', { x: x(s.p25), y: y - 6, width: Math.max(4, x(s.p75) - x(s.p25)), height: 12, rx: 6, fill: 'var(--mc-band)' }) +
+        svgEl('rect', { x: x(s.p25), y: y - 6, width: Math.max(4, x(s.p75) - x(s.p25)), height: 12, rx: 6, fill: 'var(--cs-band)' }) +
         svgEl('circle', { cx: x(s.med), cy: y, r: 7, fill: 'var(--fairway)', stroke: 'var(--white)', 'stroke-width': 2 }) +
         svgEl('text', { x: W, y: y + 5, 'text-anchor': 'end', 'font-size': 14, 'font-weight': 700, fill: 'var(--ink)' }, Math.round(s.med)) +
         '</g>';
@@ -218,9 +218,9 @@
     const i = stats.findIndex((s, k) => k < stats.length - 1 && s.n >= MIN_SHOTS && stats[k + 1].n >= MIN_SHOTS && s.med < stats[k + 1].med);
     const title = i >= 0 ? `Your ${stats[i].club} goes shorter than your ${stats[i + 1].club}` : 'How far each club goes';
     return `
-        <div class="mc-panel">
+        <div class="cs-panel">
           <h3>${esc(title)}</h3>
-          <p class="mc-note">The dot is your normal length, the bar where half your shots land.</p>
+          <p class="cs-note">The dot is your normal length, the bar where half your shots land.</p>
           <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Normal length per club">${body}</svg>
         </div>`;
   }
@@ -249,14 +249,14 @@
     }).filter(Boolean);
     if (pts.length > 1) {
       const band = pts.map(p => `${p.x},${y(p.p75)}`).concat(pts.slice().reverse().map(p => `${p.x},${y(p.p25)}`));
-      body += svgEl('polygon', { points: band.join(' '), fill: 'var(--mc-band)', opacity: 0.8 });
+      body += svgEl('polygon', { points: band.join(' '), fill: 'var(--cs-band)', opacity: 0.8 });
     }
     list.forEach(s => {
       body += svgEl('circle', s.onGreen
         ? { cx: x(s), cy: y(s.m), r: 3, fill: 'var(--white)', stroke: 'var(--fairway)', 'stroke-width': 1.5 }
         : s.solid
           ? { cx: x(s), cy: y(s.m), r: 3, fill: 'var(--fairway)', opacity: 0.45 }
-          : { cx: x(s), cy: y(s.m), r: 3, fill: 'var(--white)', stroke: 'var(--mc-miss)', 'stroke-width': 1.5 });
+          : { cx: x(s), cy: y(s.m), r: 3, fill: 'var(--white)', stroke: 'var(--cs-miss)', 'stroke-width': 1.5 });
     });
     if (pts.length > 1) {
       body += svgEl('polyline', { points: pts.map(p => `${p.x},${y(p.med)}`).join(' '), fill: 'none', stroke: 'var(--fairway)', 'stroke-width': 3, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
@@ -282,20 +282,20 @@
     if (late.spread < early.spread * 0.85) parts.push('more consistent'); else if (late.spread > early.spread * 1.15) parts.push('less consistent');
     if (late.miss < early.miss - 0.1) parts.push('with fewer mishits'); else if (late.miss > early.miss + 0.1) parts.push('with more mishits');
     const title = parts.length ? `Your ${currentClub} is getting ${parts.join(', ')}` : `Your ${currentClub} is holding steady`;
-    const fact = (label, then, now, fmt) => `<div class="mc-fact"><b>${esc(fmt(now))}</b><span>${esc(label)}<br>was ${esc(fmt(then))}</span></div>`;
+    const fact = (label, then, now, fmt) => `<div class="cs-fact"><b>${esc(fmt(now))}</b><span>${esc(label)}<br>was ${esc(fmt(then))}</span></div>`;
     const m = v => isNaN(v) ? '–' : Math.round(v) + ' m';
     const chips = a.clubs.map(c => {
       const n = a.shots.filter(s => s.club === c).length;
-      return `<button class="mc-chip" data-action="my-clubs-club" data-club="${esc(c)}" aria-pressed="${c === currentClub}">${esc(c)} <span>${n}</span></button>`;
+      return `<button class="cs-chip" data-action="club-stats-club" data-club="${esc(c)}" aria-pressed="${c === currentClub}">${esc(c)} <span>${n}</span></button>`;
     }).join('');
     return `
-        <h2 class="mc-head">Club by club</h2>
-        <div class="mc-chips" role="group" aria-label="Club">${chips}</div>
-        <div class="mc-panel">
+        <h2 class="cs-head">Club by club</h2>
+        <div class="cs-chips" role="group" aria-label="Club">${chips}</div>
+        <div class="cs-panel">
           <h3>${esc(title)}</h3>
-          <p class="mc-note">The band narrowing means your shots land closer together. Grey rings are mishits, green rings went onto the green.</p>
+          <p class="cs-note">The band narrowing means your shots land closer together. Grey rings are mishits, green rings went onto the green.</p>
           ${clubChart(list)}
-          <div class="mc-facts">
+          <div class="cs-facts">
             ${fact('normal length', early.med, late.med, m)}
             ${fact('half land within', early.spread, late.spread, v => isNaN(v) ? '–' : '±' + Math.round(v) + ' m')}
             ${fact('mishits', early.miss, late.miss, v => Math.round(v * 10) + ' of 10')}
@@ -306,11 +306,11 @@
   function fromHtml() {
     const on = !!settings.from;
     return `
-        <div class="mc-from" role="group" aria-label="Shots shown">
-          <button class="mc-chip" data-action="my-clubs-all" aria-pressed="${!on}">All</button>
-          <label class="mc-chip mc-since" aria-pressed="${on}">
+        <div class="cs-from" role="group" aria-label="Shots shown">
+          <button class="cs-chip" data-action="club-stats-all" aria-pressed="${!on}">All</button>
+          <label class="cs-chip cs-since" aria-pressed="${on}">
             <span>${on ? 'Since ' + esc(fmtDay(fromTime())) : 'Since a date'}</span>
-            <input type="date" id="my-clubs-from" value="${esc(settings.from || '')}" max="${esc(new Date().toISOString().slice(0, 10))}" aria-label="Show shots since">
+            <input type="date" id="club-stats-from" value="${esc(settings.from || '')}" max="${esc(new Date().toISOString().slice(0, 10))}" aria-label="Show shots since">
           </label>
         </div>`;
   }
@@ -322,12 +322,12 @@
       main = `<p class="empty">${settings.from ? 'No shots with a distance since that date yet.' : 'No shots with a distance yet.'} A distance is measured when a stroke and the next one, or its landing spot, both have a GPS position. Finished rounds count.</p>`;
     } else {
       main = `
-        <p class="mc-sub">${a.shots.length} shots from ${esc(fmtDay(a.shots[0].t))} to ${esc(fmtDay(a.shots[a.shots.length - 1].t))}</p>
-        ${a.periods.length ? `<h2 class="mc-head">Are you getting better?</h2><div class="mc-cards">${cardsHtml(a)}</div>` : ''}
-        <h2 class="mc-head">Your bag</h2>
+        <p class="cs-sub">${a.shots.length} shots from ${esc(fmtDay(a.shots[0].t))} to ${esc(fmtDay(a.shots[a.shots.length - 1].t))}</p>
+        ${a.periods.length ? `<h2 class="cs-head">Are you getting better?</h2><div class="cs-cards">${cardsHtml(a)}</div>` : ''}
+        <h2 class="cs-head">Your bag</h2>
         ${bagHtml(a)}
         ${clubHtml(a)}
-        <p class="mc-foot">Full swings only, total distance including roll. Putts, penalty strokes, chips, pitches and bunker
+        <p class="cs-foot">Full swings only, total distance including roll. Putts, penalty strokes, chips, pitches and bunker
           shots are left out, as are shots followed by a penalty, shots with poor GPS and automatic strokes not yet confirmed.
           A mishit is a shot shorter than ¾ of the club's normal length. A shot onto the green is never a mishit, and is
           left out of length and consistency, since the hole set how far it went. Mark half swings as Pitch to leave them out.</p>`;
@@ -335,11 +335,11 @@
     return `
     <div class="screen">
       <header class="top">
-        <button class="ghost" data-action="my-clubs-back">‹ Back</button>
-        <h2>My clubs</h2>
+        <button class="ghost" data-action="club-stats-back">‹ Back</button>
+        <h2>Club statistics</h2>
         <span style="width:64px"></span>
       </header>
-      <main class="scroll mc">
+      <main class="scroll cs">
         ${fromHtml()}
         ${main}
       </main>
@@ -353,68 +353,68 @@
       const ps = analyse(db.rounds, { from: fromTime() }).periods;
       if (ps.length) hint = ` · ${Math.round(ps[ps.length - 1].solid * 10)} of 10 solid shots`;
     } catch (err) { /* a problem here must never break the home screen */ }
-    return `<button class="mc-home" data-action="my-clubs"><span><b>My clubs</b>${esc(hint)}</span><span aria-hidden="true">›</span></button>`;
+    return `<button class="cs-home" data-action="club-stats"><span><b>Club statistics</b>${esc(hint)}</span><span aria-hidden="true">›</span></button>`;
   }
 
   const css = `
-    .mc { --mc-band: #B9CFAE; --mc-miss: #A7AFA3; }
-    .mc-home { display: flex; justify-content: space-between; align-items: center; width: 100%; margin: -6px 0 14px;
+    .cs { --cs-band: #B9CFAE; --cs-miss: #A7AFA3; }
+    .cs-home { display: flex; justify-content: space-between; align-items: center; width: 100%; margin: -6px 0 14px;
                padding: 12px 16px; background: var(--white); border: 1px solid var(--line); border-radius: 14px;
                color: var(--ink); font-size: 15px; text-align: left; }
-    .mc-home b { color: var(--fairway); }
-    .mc-home span:last-child { color: var(--fairway); font-size: 20px; font-weight: 700; }
-    .mc-head { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); margin: 22px 0 8px; }
-    .mc-sub { color: var(--mute); font-size: 14px; margin: 10px 0 0; }
-    .mc-cards { display: grid; gap: 10px; }
-    .mc-card { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px;
+    .cs-home b { color: var(--fairway); }
+    .cs-home span:last-child { color: var(--fairway); font-size: 20px; font-weight: 700; }
+    .cs-head { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); margin: 22px 0 8px; }
+    .cs-sub { color: var(--mute); font-size: 14px; margin: 10px 0 0; }
+    .cs-cards { display: grid; gap: 10px; }
+    .cs-card { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px;
                display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center; }
-    .mc-label { font-weight: 700; }
-    .mc-value { font-size: 22px; font-weight: 800; text-align: right; color: var(--mute); font-variant-numeric: tabular-nums; }
-    .mc-value.good { color: var(--under); }
-    .mc-line { color: var(--mute); font-size: 14px; grid-column: 1 / -1; }
-    .mc-card svg { grid-column: 1 / -1; width: 100%; height: auto; margin-top: 6px; }
-    .mc-panel { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 14px 12px 10px; }
-    .mc-panel h3 { margin: 0 4px 2px; font-size: 18px; font-weight: 800; text-wrap: balance; }
-    .mc-note { margin: 0 4px 8px; color: var(--mute); font-size: 14px; }
-    .mc-panel svg { width: 100%; height: auto; display: block; }
-    .mc svg text { font-family: inherit; }
-    .mc-chips, .mc-from { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
-    .mc-from { margin: 4px 0 0; }
-    .mc-chip { position: relative; border: 1px solid var(--line); background: var(--white); color: var(--ink); border-radius: 999px;
+    .cs-label { font-weight: 700; }
+    .cs-value { font-size: 22px; font-weight: 800; text-align: right; color: var(--mute); font-variant-numeric: tabular-nums; }
+    .cs-value.good { color: var(--under); }
+    .cs-line { color: var(--mute); font-size: 14px; grid-column: 1 / -1; }
+    .cs-card svg { grid-column: 1 / -1; width: 100%; height: auto; margin-top: 6px; }
+    .cs-panel { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 14px 12px 10px; }
+    .cs-panel h3 { margin: 0 4px 2px; font-size: 18px; font-weight: 800; text-wrap: balance; }
+    .cs-note { margin: 0 4px 8px; color: var(--mute); font-size: 14px; }
+    .cs-panel svg { width: 100%; height: auto; display: block; }
+    .cs svg text { font-family: inherit; }
+    .cs-chips, .cs-from { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+    .cs-from { margin: 4px 0 0; }
+    .cs-chip { position: relative; border: 1px solid var(--line); background: var(--white); color: var(--ink); border-radius: 999px;
                padding: 7px 14px; font: inherit; font-size: 15px; font-weight: 700; min-height: 36px; display: inline-flex; align-items: center; }
-    .mc-chip span { color: var(--mute); font-weight: 500; font-size: 13px; margin-left: 4px; }
-    .mc-chip[aria-pressed="true"] { background: var(--fairway); border-color: var(--fairway); color: var(--white); }
-    .mc-chip[aria-pressed="true"] span { color: var(--mc-band); }
-    .mc-since span { margin-left: 0; color: inherit; font-size: 15px; font-weight: 700; }
-    .mc-since input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
-    .mc-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 4px 4px; }
-    .mc-fact b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
-    .mc-fact span { color: var(--mute); font-size: 12px; }
-    .mc-foot { color: var(--mute); font-size: 13px; margin: 18px 4px 0; }`;
+    .cs-chip span { color: var(--mute); font-weight: 500; font-size: 13px; margin-left: 4px; }
+    .cs-chip[aria-pressed="true"] { background: var(--fairway); border-color: var(--fairway); color: var(--white); }
+    .cs-chip[aria-pressed="true"] span { color: var(--cs-band); }
+    .cs-since span { margin-left: 0; color: inherit; font-size: 15px; font-weight: 700; }
+    .cs-since input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
+    .cs-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 4px 4px; }
+    .cs-fact b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+    .cs-fact span { color: var(--mute); font-size: 12px; }
+    .cs-foot { color: var(--mute); font-size: 13px; margin: 18px 4px 0; }`;
   const style = document.createElement('style');
   style.textContent = css;
   document.head.appendChild(style);
 
   // The start date is a date field inside the "Since" chip; it changes, it does not click.
   document.addEventListener('change', event => {
-    if (event.target.id !== 'my-clubs-from') return;
+    if (event.target.id !== 'club-stats-from') return;
     settings = { ...settings, from: event.target.value || null };
     saveSettings(settings);
     render();
   });
 
   (window.strokeCounterFeatures = window.strokeCounterFeatures || []).push({
-    file: 'my-clubs.js',
-    views: { 'my-clubs': renderScreen },
+    file: 'club-stats.js',
+    views: { 'club-stats': renderScreen },
     home: homeRow,
     actions: {
-      'my-clubs': () => { view = 'my-clubs'; render(); },
-      'my-clubs-back': () => { view = 'list'; render(); },
-      'my-clubs-club': el => { currentClub = el.dataset.club; render(); },
-      'my-clubs-all': () => { settings = { ...settings, from: null }; saveSettings(settings); render(); }
+      'club-stats': () => { view = 'club-stats'; render(); },
+      'club-stats-back': () => { view = 'list'; render(); },
+      'club-stats-club': el => { currentClub = el.dataset.club; render(); },
+      'club-stats-all': () => { settings = { ...settings, from: null }; saveSettings(settings); render(); }
     }
   });
 
   // For the tests.
-  window.MyClubs = { collectShots, analyse, clubThenNow, SOLID, MIN_SHOTS };
+  window.ClubStats = { collectShots, analyse, clubThenNow, SOLID, MIN_SHOTS };
 })();

@@ -8,7 +8,7 @@ as an Apple Watch app that logs strokes from the wrist.
 
 | Folder | What it is | Built with |
 | --- | --- | --- |
-| `web/` | The whole app: data, rules and every screen in `index.html`, plus features kept in their own files (`my-clubs.js`) | Plain HTML, CSS and JavaScript, no build step |
+| `web/` | The whole app: data, rules and every screen in `index.html`, plus features kept in their own files (`club-stats.js`) | Plain HTML, CSS and JavaScript, no build step |
 | `ios/` | iOS app: a WKWebView around `web/index.html`, plus native bridges | SwiftUI, generated with xcodegen |
 | `watch/` | Apple Watch app for logging strokes during a round | SwiftUI, native |
 
@@ -62,10 +62,10 @@ before the app's script. It registers itself in `window.strokeCounterFeatures`: 
 reads the app's data and keeps its own settings under its own storage key. Removing it = deleting the file and its
 `<script>` line. Now there is one:
 
-- **My clubs** (`my-clubs.js`): whether the player is getting better, over every finished round. Cards for the whole
-  bag (solid shots, consistency, distance, week by week), every club's normal length on one scale, and each club
-  over time, from all shots or since a chosen date. Full swings only; a mishit is a shot under ¾ of the club's normal
-  length, and a shot onto the green is never one. The rules are listed at the top of the file.
+- **Club statistics** (`club-stats.js`): whether the player is getting better, over every finished round. Cards for
+  the whole bag (solid shots, consistency, distance, week by week), every club's normal length on one scale, and
+  each club over time, from all shots or since a chosen date. Full swings only; a mishit is a shot under ¾ of the
+  club's normal length, and a shot onto the green is never one. The rules are listed at the top of the file.
 
 ### Data
 
@@ -218,7 +218,7 @@ python3 and Chrome (set `CHROME=/path/to/chrome` if it isn't found).
 | `home` | Stats, Continue card, Past rounds and net badges, swipe to delete, settings |
 | `navigation` | Where Back goes from the scorecard and hole views |
 | `watch-sync` | Snapshots to the watch and `applyWatchEvents`: merging, removals, positions, locks, finished rounds |
-| `my-clubs` | My clubs: which shots count, normal length, mishits, shots onto the green, the start date, the screen |
+| `club-stats` | Club statistics: which shots count, normal length, mishits, shots onto the green, the start date, the screen |
 | `suggest-club` | `teeClubs`: the likely tee club per hole sent to the watch (same hole on the course, else same par) |
 | `gps` | The GPS watch: restarts after a denied error and on return to the app, the status pill |
 | `gps-shim` | `ios/StrokeCounter/gps-shim.js` with a fake native bridge |
