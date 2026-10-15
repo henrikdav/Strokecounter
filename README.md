@@ -182,8 +182,9 @@ blocks the screen in automated runs.
 - **Swing recordings:** the watch logs each round's swings found, how strokes were logged, GPS fixes and its battery
   level every minute, and the hole marks made on the green page (`events.jsonl`), plus every motion sample
   (`motion.bin`, 50 Hz) when collecting data to tune the detector (`SwingRecorder.recordsMotion`, off now), and sends
-  them to the phone when the workout ends (`Documents/SwingRecordings`). Copy them to the Mac with `xcrun devicectl device copy from … --domain-type
-  appDataContainer --domain-identifier com.henrikdav.StrokeCounter --source Documents/SwingRecordings/<name>/events.jsonl`,
+  them to the phone when the workout ends (`Documents/SwingRecordings`). Copy them to the Mac with
+  `xcrun devicectl device copy from … --domain-type appDataContainer --domain-identifier com.henrikdav.StrokeCounter
+  --source Documents/SwingRecordings/<name>/events.jsonl`,
   then `tools/swing/inspect.py <folder>`.
 
 The full protocol (every message, field and rule, and how versions work) is in
@@ -220,7 +221,8 @@ The iOS bridges are faked with a script put at the top of the app's `<head>` (`W
 `harness.js`).
 
 The watch app's round logic (`RoundState`: what is shown, what is refused, when an event counts as confirmed), the
-swing detector and the green page's distance (`GreenDistance`) have unit tests in `watch/StrokeCounterWatchTests/`, run on a watch simulator:
+swing detector and the green page's distance (`GreenDistance`) have unit tests in `watch/StrokeCounterWatchTests/`,
+run on a watch simulator:
 
 ```sh
 cd ios && xcodebuild test -project StrokeCounter.xcodeproj -scheme StrokeCounterWatch \
