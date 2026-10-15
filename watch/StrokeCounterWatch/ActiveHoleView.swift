@@ -1,13 +1,12 @@
 import SwiftUI
 import WatchKit
 
-// Screen 1: the hole being played. The wide "+1 STROKE" button logs a stroke with the suggested club, which is not
-// shown here since it may be wrong; club and modifiers are set afterwards, on the screen that confirms the stroke.
-// Under the stroke count, the hole's last stroke: a tap opens that screen again, to change it. Above the button,
-// the distance of the current shot, live from GPS; a tap locks it as where the shot landed (Stop on the phone).
-// Undo (top left) removes the hole's last stroke; finish (top right, or a swipe up) ends the hole.
-// A hole locked on the phone shows a notice instead, and only finish works; a round finished on the phone is
-// read-only with nothing to do. Both update live with the phone.
+// Screen 1: the hole being played, kept simple: the hole, the stroke count, the shot in play and one button. The
+// wide "+1 STROKE" logs a stroke with the suggested club (not shown, since it may be wrong); club and modifiers are
+// set on the screen that confirms it, and later changes or removals are made on the phone. Above the button, the
+// hole's last stroke with its distance, live from GPS; a tap locks the distance where the ball landed. Finish
+// (top right) ends the hole. A hole locked on the phone shows a notice instead, and only finish works; a round
+// finished on the phone is read-only with nothing to do. Both update live with the phone.
 struct ActiveHoleView: View {
     @EnvironmentObject private var store: WatchStore
     let hole: Int
@@ -18,7 +17,7 @@ struct ActiveHoleView: View {
         let club = store.club(on: hole)
         let locked = store.isLocked(hole)
         let finished = store.isRoundFinished
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             VStack(spacing: 0) {
                 Text("HOLE \(hole)")
                     .font(.system(size: 15, weight: .bold))
@@ -34,12 +33,10 @@ struct ActiveHoleView: View {
                 lockedNotice(finished: finished)
             } else {
                 if let last = strokes.last {
-                    lastStroke(last, number: strokes.count)
-                }
-
-                // Re-read every few seconds as well, so a fix that has gone stale clears the distance.
-                TimelineView(.periodic(from: .now, by: 5)) { _ in
-                    distanceLine(store.shotDistance(on: hole))
+                    // Re-read every few seconds as well, so a fix that has gone stale clears the distance.
+                    TimelineView(.periodic(from: .now, by: 5)) { _ in
+                        shotPill(last, store.shotDistance(on: hole))
+                    }
                 }
 
                 Button {
@@ -53,7 +50,7 @@ struct ActiveHoleView: View {
                         .font(.system(size: 20, weight: .heavy))
                         .foregroundStyle(accentInk)
                     .padding(.horizontal, 8)
-                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .frame(maxWidth: .infinity, minHeight: 52)
                     .background(RoundedRectangle(cornerRadius: 18).fill(accent))
                 }
                 .buttonStyle(.plain)
@@ -65,25 +62,7 @@ struct ActiveHoleView: View {
         // Starts the round's workout session (and with it GPS) before the first tap, so a position is usually
         // ready when a stroke is logged.
         .onAppear { store.roundScreenShown() }
-        // Swipe up to finish the hole, as in the mockup. Not on a finished round: nothing can change there.
-        .gesture(DragGesture(minimumDistance: 30).onEnded { value in
-            if !finished && value.translation.height < -40 && abs(value.translation.width) < abs(value.translation.height) {
-                path = [.finish(hole: hole)]
-            }
-        })
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    if let last = strokes.last {
-                        store.removeStroke(last.id, hole: hole)
-                        WKInterfaceDevice.current().play(.directionDown)
-                    }
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                }
-                .disabled(strokes.isEmpty || locked)
-                .accessibilityLabel("Undo last stroke")
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     path = [.finish(hole: hole)]
@@ -111,37 +90,62 @@ struct ActiveHoleView: View {
         }
     }
 
-    // The current shot's distance: live with a pulsing dot and a stop mark (tap to lock it), grey once locked,
-    // and a dash when there is nothing to measure (no stroke, a putt, no position, or no recent GPS fix).
-    @ViewBuilder private func distanceLine(_ distance: RoundState.ShotDistance) -> some View {
+    // The shot in play: the hole's last stroke ("7i · Rough") with its distance below, live while walking with a
+    // pulsing dot and a stop mark. A tap locks the distance where the watch is now, as where the ball landed (Stop
+    // on the phone); it is grey and fixed after that. Only information otherwise: strokes are changed right after
+    // logging, or on the phone. No distance row for a putt, a penalty stroke or a stroke without a position; a dash
+    // while there is no recent GPS fix.
+    @ViewBuilder private func shotPill(_ stroke: Snapshot.Stroke, _ distance: RoundState.ShotDistance) -> some View {
+        let summary = strokeSummary(club: stroke.club, mods: stroke.mods.compactMap(Modifier.init(rawValue:)))
         switch distance {
         case let .live(value, strokeId):
             Button {
                 let locked = store.lockDistance(strokeId: strokeId, hole: hole)
                 WKInterfaceDevice.current().play(locked ? .success : .failure)
             } label: {
-                distanceContent(value: value, live: true)
+                pill(summary) { distanceRow(value, live: true) }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("This shot, \(value) meters. Tap to lock the distance.")
+            .accessibilityLabel("\(summary), \(value) meters. Tap to lock the distance where the ball landed.")
         case let .locked(value):
-            distanceContent(value: value, live: false)
+            pill(summary) { distanceRow(value, live: false) }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("This shot, \(value) meters, locked")
+                .accessibilityLabel("\(summary), \(value) meters, locked")
         case .none:
-            distanceContent(value: "–", live: false, dim: true)
-                .accessibilityHidden(true)
+            if stroke.isMeasured && stroke.position != nil {
+                pill(summary) { distanceRow("–", live: false).opacity(0.45) }   // waiting for a GPS fix
+                    .accessibilityElement(children: .combine)
+            } else {
+                pill(summary) { EmptyView() }
+                    .accessibilityElement(children: .combine)
+            }
         }
     }
 
-    private func distanceContent(value: String, live: Bool, dim: Bool = false) -> some View {
+    private func pill<Distance: View>(_ summary: String, @ViewBuilder distance: () -> Distance) -> some View {
+        VStack(spacing: 1) {
+            Text(summary)
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .fixedSize(horizontal: false, vertical: true)
+            distance()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, minHeight: 50)
+        .fixedSize(horizontal: false, vertical: true)   // never squeezed by the rows around it
+        .background(RoundedRectangle(cornerRadius: 17).fill(tile))
+    }
+
+    private func distanceRow(_ value: String, live: Bool) -> some View {
         HStack(spacing: 6) {
             if live { PulsingDot() }
             Text(value)
                 .font(.system(size: 20, weight: .heavy))
                 .foregroundStyle(live ? Color.primary : Color.secondary)
-            Text("m · this shot")
-                .font(.system(size: 11, weight: .bold))
+            Text("m")
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.secondary)
             if live {
                 // A stop mark, like the phone's Stop button.
@@ -152,10 +156,6 @@ struct ActiveHoleView: View {
                     .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary, lineWidth: 1.6))
             }
         }
-        .opacity(dim ? 0.45 : 1)
-        .padding(.horizontal, 12)
-        .frame(minHeight: 34)
-        .background(Capsule().fill(tile))
     }
 
     // Shown in place of "+1 STROKE", the summary and Bag/Modifier. Not a button: there is nothing to do here.
@@ -172,26 +172,6 @@ struct ActiveHoleView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 118)
         .accessibilityElement(children: .combine)
-    }
-
-    // The hole's last stroke, "Last: 7i · Rough": a tap opens it to change club or modifiers, as right after logging.
-    private func lastStroke(_ stroke: Snapshot.Stroke, number: Int) -> some View {
-        Button {
-            path = [.logged(stroke, number: number, hole: hole)]
-        } label: {
-            HStack(spacing: 3) {
-                Text("Last:").foregroundStyle(.secondary)
-                Text(strokeSummary(club: stroke.club, mods: stroke.mods.compactMap(Modifier.init(rawValue:))))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-            }
-            .font(.system(size: 13, weight: .semibold))
-            .frame(maxWidth: .infinity, minHeight: 30)
-            .background(Capsule().fill(tile))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Last stroke, \(stroke.club). Change it")
     }
 }
 
