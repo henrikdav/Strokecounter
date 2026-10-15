@@ -20,6 +20,13 @@ struct FinishHoleView: View {
             Text("\(count) \(count == 1 ? "stroke" : "strokes")" + (par.map { " · Par \($0)" } ?? ""))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
+            // A stroke the watch logged by itself and nobody confirmed: shown before the hole locks.
+            ForEach(Array(store.strokes(on: hole).enumerated()).filter { $0.element.auto == true }, id: \.element.id) { index, stroke in
+                Text("Stroke \(index + 1) (\(stroke.club)) auto-added")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .multilineTextAlignment(.center)
+            }
             if !store.isLocked(hole) {
                 markButton
             }
@@ -48,6 +55,8 @@ struct FinishHoleView: View {
         }
         .padding(.horizontal, 8)
         .navigationBarBackButtonHidden(true)
+        // A swing walked away from and never logged is the hole's last full shot: log it now.
+        .onAppear { if !store.isLocked(hole) { store.logForgottenSwing(on: hole) } }
     }
 
     private var markButton: some View {

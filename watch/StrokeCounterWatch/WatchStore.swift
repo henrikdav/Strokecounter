@@ -16,6 +16,8 @@ final class WatchStore: ObservableObject {
     @Published private(set) var swingTime: Date?
     // Counts every change to the swing (found, walked away from, used), so the screens can react to each.
     @Published private(set) var swingChanges = 0
+    // A stroke the watch logged by itself, to show (with its confirmation) on the next wrist raise.
+    @Published var autoStrokeToShow: (stroke: Snapshot.Stroke, hole: Int)?
 
     private let sync = SyncClient()
     private let session = RoundSession()
@@ -39,6 +41,7 @@ final class WatchStore: ObservableObject {
             self?.swingChanges += 1
         }
         session.currentHole = { [weak self] in self?.state.currentHole }
+        session.onForgottenSwing = { [weak self] swing in self?.logForgotten(swing) }
         sync.activeRecording = { [weak self] in self?.session.recorder.currentFolder }
         session.setSwingDetection(state.swingDetection)
         session.roundChanged(id: state.round?.id, finished: state.isRoundFinished)
@@ -98,6 +101,38 @@ final class WatchStore: ObservableObject {
             session.recorder.noteStroke(stroke, hole: hole, fromSwingList: fromSwingList, swingPosition: swingPosition != nil)
         }
         return event.stroke
+    }
+
+    // MARK: Automatic strokes
+
+    // Logs a swing that was walked away from and never logged, as an automatic stroke: the swing's time (so it sits
+    // before the next stroke), its position and the club suggested for the hole. Silent; it shows on the next wrist
+    // raise, or on the Finish hole screen.
+    private func logForgotten(_ swing: RoundSession.Swing) {
+        guard let hole = swing.hole else { return }
+        let id = UUID().uuidString.lowercased()
+        let t = (swing.time.timeIntervalSince1970 * 1000).rounded()
+        guard let event = change({ $0.logStroke(id: id, club: state.club(on: hole), mods: [], hole: hole, t: t,
+                                                position: swing.position, auto: true) }),
+              let stroke = event.stroke else {
+            session.recorder.note("auto-refused")   // e.g. the hole was locked meanwhile
+            return
+        }
+        session.recorder.noteStroke(stroke, hole: hole, fromSwingList: false, swingPosition: swing.position != nil)
+        autoStrokeToShow = (stroke, hole)
+    }
+
+    // Finishing a hole logs its forgotten swing, if any, so the Finish hole screen can show it before the hole locks.
+    func logForgottenSwing(on hole: Int) {
+        guard let swing = session.forgottenSwing, swing.hole == hole else { return }
+        logForgotten(swing)
+        session.clearSwing()
+        autoStrokeToShow = nil   // shown on the Finish hole screen instead
+    }
+
+    // Done on the confirmation of an automatic stroke: it stays as it is, no longer marked.
+    func confirmStroke(_ stroke: Snapshot.Stroke, hole: Int) {
+        editStroke(stroke.id, hole: hole, club: stroke.club, mods: Set(stroke.mods.compactMap(Modifier.init(rawValue:))))
     }
 
     // MARK: Swings

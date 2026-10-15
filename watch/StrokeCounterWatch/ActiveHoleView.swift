@@ -97,6 +97,7 @@ struct ActiveHoleView: View {
     // while there is no recent GPS fix.
     @ViewBuilder private func shotPill(_ stroke: Snapshot.Stroke, _ distance: RoundState.ShotDistance) -> some View {
         let summary = strokeSummary(club: stroke.club, mods: stroke.mods.compactMap(Modifier.init(rawValue:)))
+            + (stroke.auto == true ? " · auto" : "")   // logged by the watch itself, not yet confirmed
         switch distance {
         case let .live(value, strokeId):
             Button {

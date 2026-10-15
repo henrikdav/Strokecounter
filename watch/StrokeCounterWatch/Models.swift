@@ -30,6 +30,7 @@ struct Snapshot: Codable, Equatable {
         var mods: [String]
         let t: Double   // milliseconds since 1970, as in the web app
         var edited: Double? = nil   // when club or modifiers were last changed, on either device (ms)
+        var auto: Bool? = nil       // logged automatically from a swing and not yet confirmed (any edit confirms)
         // Where the stroke was played from, when there was a GPS fix (accuracy in meters).
         var lat: Double? = nil
         var lng: Double? = nil

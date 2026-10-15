@@ -456,4 +456,26 @@ final class RoundStateTests: XCTestCase {
         XCTAssertFalse(state(snapshotJSON(swingDetection: false)).swingDetection)
         XCTAssertTrue(RoundState().swingDetection, "no snapshot yet")
     }
+
+    // MARK: Automatic strokes
+
+    func testAnAutomaticStrokeIsMarkedUntilAnEditConfirmsIt() {
+        var s = state(snapshotJSON())
+        let event = s.logStroke(id: "a1", club: "7i", mods: [], hole: 1, t: 5, position: nil, auto: true)
+        XCTAssertEqual(event?.stroke?.auto, true)
+        XCTAssertEqual(s.strokes(on: 1).first?.auto, true)
+        _ = s.editStroke(id: "a1", hole: 1, club: "7i", mods: [], t: 9)
+        XCTAssertNil(s.strokes(on: 1).first?.auto, "Done or a change confirms it")
+    }
+
+    func testAStrokeLoggedByHandIsNotMarked() {
+        var s = state(snapshotJSON())
+        XCTAssertNil(s.logStroke(id: "h1", club: "7i", mods: [], hole: 1, t: 5, position: nil)?.stroke?.auto)
+    }
+
+    func testTheAutomaticMarkComesFromThePhoneToo() {
+        var auto = stroke("a1", t: 1)
+        auto["auto"] = true
+        XCTAssertEqual(state(snapshotJSON(strokes: [1: [auto]])).strokes(on: 1).first?.auto, true)
+    }
 }
