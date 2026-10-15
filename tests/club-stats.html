@@ -58,6 +58,18 @@ test(async () => {
   ok('the row opens Club statistics', app.E('view') === 'club-stats' && /Club statistics/.test(app.q('.top h2').textContent));
   ok('it shows the cards, the bag and the club', app.qa('.cs-card').length === 3 && app.qa('.cs-panel').length === 2 && app.qa('.cs-chip[data-club="7i"]').length === 1);
 
+  // A tap on a club in the bag folds out its numbers; another folds them away.
+  await app.click('[data-action="club-stats-bag"][data-club="7i"]');
+  const detail = app.q('.cs-bag-detail');
+  const text = detail ? detail.textContent.replace(/\s+/g, ' ') : '';
+  ok('a tap on a club shows its numbers', /7 shots/.test(text) && /Normal length\s*115 m/.test(text) && /Half land\s*10[23]–12[78] m/.test(text) && /Longest\s*140 m/.test(text), text);
+  ok('the row says it is open', app.q('[data-action="club-stats-bag"]').getAttribute('aria-expanded') === 'true');
+  await app.click('[data-action="club-stats-bag"][data-club="7i"]');
+  ok('another tap folds it away', !app.q('.cs-bag-detail'));
+  await app.click('[data-action="club-stats-bag"][data-club="7i"]');
+  await app.click('[data-action="club-stats-see"]');
+  ok('See over time picks the club below', app.q('.cs-chip[data-club="7i"]').getAttribute('aria-pressed') === 'true');
+
   const before = localStorage.getItem(STORAGE_KEY);
   ok('the date field starts on the first shot', app.q('#club-stats-from').value === app.E('(d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`)(new Date(ClubStats.collectShots(db.rounds, CLUBS)[0].t))'), app.q('#club-stats-from').value);
   // With the picker open (the field focused) a change waits, so the picker is not closed by a redraw.

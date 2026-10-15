@@ -91,7 +91,7 @@
     // The bag in club order: normal length and where half the shots land.
     const bag = clubs.filter(c => normal[c] != null).map(c => {
       const m = lengths(c).filter(v => v <= 2 * normal[c]);
-      return { club: c, n: count(c), p25: quant(m, 0.25), med: median(m), p75: quant(m, 0.75) };
+      return { club: c, n: count(c), p25: quant(m, 0.25), med: median(m), p75: quant(m, 0.75), max: Math.max(...m) };
     });
 
     return { shots, normal, months, periods, bag, clubs: bag.filter(b => b.n >= MIN_SHOTS).sort((a, b) => b.n - a.n).map(b => b.club) };
@@ -108,6 +108,15 @@
       early: { med: medOf(early), spread: spreadOf(early), miss: missRate(early) },
       late: { med: medOf(late), spread: spreadOf(late), miss: missRate(late) }
     };
+  }
+
+  // Redraws the screen where it is scrolled to, as a change on it (a club, a row folded out) is not a new screen.
+  function redraw() {
+    const before = document.querySelector('.cs');
+    const top = before ? before.scrollTop : 0;
+    render();
+    const after = document.querySelector('.cs');
+    if (after) after.scrollTop = top;
   }
 
   /* ---------- Setting: the start date ---------- */
@@ -194,34 +203,58 @@
     return html;
   }
 
-  // Every club's normal length on one scale: a dot for it, a bar where half the shots land.
+  // Every club's normal length on one scale: a dot for it, a bar where half the shots land. Each club is a row of
+  // its own, drawn on the same scale; a tap folds out its numbers under it, another folds them away.
+  let openBagClub = null;
+
   function bagHtml(a) {
     const stats = a.bag;
-    const row = 30, left = 58, right = 44, top = 22, W = 340, H = top + stats.length * row + 6;
+    const row = 30, left = 58, right = 44, W = 340;
     const maxM = Math.max(50, Math.ceil(Math.max(...stats.map(s => s.p75)) / 50) * 50);
     const x = m => left + m / maxM * (W - left - right);
-    let body = '';
-    for (let g = 0; g <= maxM; g += 50) {
-      body += svgEl('line', { x1: x(g), x2: x(g), y1: top - 4, y2: H - 4, stroke: 'var(--line)', 'stroke-width': 1 }) +
-        svgEl('text', { x: x(g), y: 12, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--mute)' }, g + (g === maxM ? ' m' : ''));
+    const grid = (y1, y2) => {
+      let g = '';
+      for (let m = 0; m <= maxM; m += 50) g += svgEl('line', { x1: x(m), x2: x(m), y1, y2, stroke: 'var(--line)', 'stroke-width': 1 });
+      return g;
+    };
+    let axis = '';
+    for (let m = 0; m <= maxM; m += 50) {
+      axis += svgEl('text', { x: x(m), y: 12, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--mute)' }, m + (m === maxM ? ' m' : ''));
     }
-    stats.forEach((s, i) => {
-      const y = top + i * row + row / 2;
-      body += `<g opacity="${s.n < MIN_SHOTS ? 0.4 : 1}">` +
+    if (!stats.some(s => s.club === openBagClub)) openBagClub = null;
+    const rows = stats.map(s => {
+      const y = row / 2, open = s.club === openBagClub;
+      const chart = grid(0, row) + `<g opacity="${s.n < MIN_SHOTS ? 0.4 : 1}">` +
         svgEl('text', { x: 0, y: y + 5, 'font-size': 15, 'font-weight': 700, fill: 'var(--ink)' }, s.club) +
         svgEl('rect', { x: x(s.p25), y: y - 6, width: Math.max(4, x(s.p75) - x(s.p25)), height: 12, rx: 6, fill: 'var(--cs-band)' }) +
         svgEl('circle', { cx: x(s.med), cy: y, r: 7, fill: 'var(--fairway)', stroke: 'var(--white)', 'stroke-width': 2 }) +
         svgEl('text', { x: W, y: y + 5, 'text-anchor': 'end', 'font-size': 14, 'font-weight': 700, fill: 'var(--ink)' }, Math.round(s.med)) +
         '</g>';
-    });
+      const detail = open ? `
+            <div class="cs-bag-detail">
+              <div class="cs-bag-name">${esc(s.club)} · ${s.n} ${s.n === 1 ? 'shot' : 'shots'}</div>
+              <span>Normal length</span><b>${Math.round(s.med)} m</b>
+              <span>Half land</span><b>${Math.round(s.p25)}–${Math.round(s.p75)} m</b>
+              <span>Longest</span><b>${Math.round(s.max)} m</b>
+              ${a.clubs.includes(s.club)
+                ? `<button class="cs-bag-see" data-action="club-stats-see" data-club="${esc(s.club)}">See ${esc(s.club)} over time ›</button>`
+                : `<p class="cs-bag-few">Too few shots for a trend yet.</p>`}
+            </div>` : '';
+      return `
+          <button class="cs-bag-row${open ? ' open' : ''}" data-action="club-stats-bag" data-club="${esc(s.club)}" aria-expanded="${open}"
+                  aria-label="${esc(s.club)}, normal length ${Math.round(s.med)} meters. ${open ? 'Hide' : 'Show'} numbers">
+            <svg viewBox="0 0 ${W} ${row}" aria-hidden="true">${chart}</svg>
+          </button>${detail}`;
+    }).join('');
     // A club going shorter than the next, shorter club in the bag: the headline, as it is the thing to look at.
     const i = stats.findIndex((s, k) => k < stats.length - 1 && s.n >= MIN_SHOTS && stats[k + 1].n >= MIN_SHOTS && s.med < stats[k + 1].med);
     const title = i >= 0 ? `Your ${stats[i].club} goes shorter than your ${stats[i + 1].club}` : 'How far each club goes';
     return `
         <div class="cs-panel">
           <h3>${esc(title)}</h3>
-          <p class="cs-note">The dot is your normal length, the bar where half your shots land.</p>
-          <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Normal length per club">${body}</svg>
+          <p class="cs-note">The dot is your normal length, the bar where half your shots land. Tap a club for its numbers.</p>
+          <svg viewBox="0 0 ${W} 22" aria-hidden="true">${axis}${grid(18, 22)}</svg>
+          <div class="cs-bag">${rows}</div>
         </div>`;
   }
 
@@ -289,7 +322,7 @@
       return `<button class="cs-chip" data-action="club-stats-club" data-club="${esc(c)}" aria-pressed="${c === currentClub}">${esc(c)} <span>${n}</span></button>`;
     }).join('');
     return `
-        <h2 class="cs-head">Club by club</h2>
+        <h2 class="cs-head" id="cs-club">Club by club</h2>
         <div class="cs-chips" role="group" aria-label="Club">${chips}</div>
         <div class="cs-panel">
           <h3>${esc(title)}</h3>
@@ -391,6 +424,17 @@
     .cs-chip[aria-pressed="true"] span { color: var(--cs-band); }
     .cs-since span { margin-left: 0; color: inherit; font-size: 15px; font-weight: 700; }
     .cs-since input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
+    .cs-bag-row { display: block; width: 100%; padding: 0; border: 0; background: none; border-radius: 8px; }
+    .cs-bag-row:focus-visible { outline: 3px solid var(--fairway); outline-offset: 1px; }
+    .cs-bag-row.open { background: var(--paper); }
+    .cs-bag-detail { display: grid; grid-template-columns: auto 1fr; gap: 2px 16px; margin: 2px 0 8px; padding: 10px 12px;
+                     background: var(--paper); border-radius: 10px; font-size: 14px; }
+    .cs-bag-detail span { color: var(--mute); }
+    .cs-bag-detail b { font-variant-numeric: tabular-nums; }
+    .cs-bag-name { grid-column: 1 / -1; font-weight: 800; margin-bottom: 2px; }
+    .cs-bag-see { grid-column: 1 / -1; justify-self: start; margin-top: 6px; padding: 6px 0; border: 0; background: none;
+                  color: var(--fairway); font: inherit; font-weight: 700; }
+    .cs-bag-few { grid-column: 1 / -1; margin: 6px 0 0; color: var(--mute); }
     .cs-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 4px 4px; }
     .cs-fact b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
     .cs-fact span { color: var(--mute); font-size: 12px; }
@@ -410,7 +454,7 @@
     if (from === (settings.from || null)) return;
     settings = { ...settings, from };
     saveSettings(settings);
-    render();
+    redraw();
   }
   document.addEventListener('change', event => {
     if (event.target.id !== 'club-stats-from') return;
@@ -427,8 +471,15 @@
     actions: {
       'club-stats': () => { view = 'club-stats'; render(); },
       'club-stats-back': () => { view = 'list'; render(); },
-      'club-stats-club': el => { currentClub = el.dataset.club; render(); },
-      'club-stats-all': () => { settings = { ...settings, from: null }; saveSettings(settings); render(); }
+      'club-stats-club': el => { currentClub = el.dataset.club; redraw(); },
+      'club-stats-bag': el => { openBagClub = openBagClub === el.dataset.club ? null : el.dataset.club; redraw(); },
+      'club-stats-see': el => {
+        currentClub = el.dataset.club;
+        redraw();
+        const head = document.getElementById('cs-club');
+        if (head) head.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      'club-stats-all': () => { settings = { ...settings, from: null }; saveSettings(settings); redraw(); }
     }
   });
 
