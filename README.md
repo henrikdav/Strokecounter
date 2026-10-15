@@ -181,8 +181,8 @@ blocks the screen in automated runs.
   against the mark. Finish hole works from both pages, and a new hole starts on the hole screen.
 - **Swing recordings:** the watch logs each round's swings found, how strokes were logged, GPS fixes and its battery
   level every minute, and the hole marks made on the green page (`events.jsonl`), plus every motion sample
-  (`motion.bin`, 50 Hz) when collecting data to tune the detector (`SwingRecorder.recordsMotion`, off now), and sends them to the phone when the workout ends
-  (`Documents/SwingRecordings`). Copy them to the Mac with `xcrun devicectl device copy from … --domain-type
+  (`motion.bin`, 50 Hz) when collecting data to tune the detector (`SwingRecorder.recordsMotion`, off now), and sends
+  them to the phone when the workout ends (`Documents/SwingRecordings`). Copy them to the Mac with `xcrun devicectl device copy from … --domain-type
   appDataContainer --domain-identifier com.henrikdav.StrokeCounter --source Documents/SwingRecordings/<name>/events.jsonl`,
   then `tools/swing/inspect.py <folder>`.
 
