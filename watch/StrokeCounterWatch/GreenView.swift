@@ -4,15 +4,13 @@ import WatchKit
 // PROTOTYPE. The green page, below the hole screen (swipe up or turn the crown): the distance to the hole, live from
 // GPS once the hole is marked, and one button that logs a putt where the watch is, so each putt's length is the
 // distance from there to the hole. Without a mark, the page asks to mark the hole first; a long press on the
-// distance marks it again where the watch is now (the newest mark wins). No confirmation after a putt: a click on
+// distance marks it again (the newest mark wins). Marking takes a few seconds standing at the cup, averaged into
+// one mark. The distance is only as exact as the GPS (GreenDistance). No confirmation after a putt: a click on
 // the wrist, the count goes up, and changes are made on the phone.
 struct GreenView: View {
     @EnvironmentObject private var store: WatchStore
     let hole: Int
     @Binding var path: [Route]
-
-    // Below this, GPS can't tell one putt from another; the page says so instead of showing a number.
-    static let shortest = 3.0
 
     var body: some View {
         let putts = store.strokes(on: hole).filter { $0.club == "Putter" }.count
@@ -22,13 +20,15 @@ struct GreenView: View {
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.secondary)
 
-            if store.holePosition(hole) == nil {
+            if store.markingHole == hole {
+                holdStill
+            } else if store.holePosition(hole) == nil {
                 markButton
             } else {
                 TimelineView(.periodic(from: .now, by: 2)) { _ in distance }
                     .contentShape(Rectangle())
-                    .onLongPressGesture(minimumDuration: 0.6) { remark() }
-                    .accessibilityAction(named: "Mark hole again") { remark() }
+                    .onLongPressGesture(minimumDuration: 0.6) { mark() }
+                    .accessibilityAction(named: "Mark hole again") { mark() }
             }
 
             Text("\(putts) \(putts == 1 ? "putt" : "putts")")
@@ -66,30 +66,50 @@ struct GreenView: View {
         }
     }
 
-    // "14 m" to the hole, in whole meters; "< 3 m" when closer; a dash without a fix.
+    // "14 m" to the hole; "≈ 14 m", dimmed, when the GPS is poor; "< 3 m" when closer than it can tell; a dash
+    // without a fix.
     @ViewBuilder private var distance: some View {
-        let value: String = {
-            guard let mark = store.holePosition(hole), let fix = store.freshFix else { return "–" }
-            let m = meters(fix, WatchEvent.Position(lat: mark.lat, lng: mark.lng, acc: mark.acc))
-            return m < Self.shortest ? "< 3" : "\(Int(m.rounded()))"
+        let mark = store.holePosition(hole).map { WatchEvent.Position(lat: $0.lat, lng: $0.lng, acc: $0.acc) }
+        let reading = GreenDistance.reading(mark: mark, now: store.freshFix)
+        let (prefix, value, rough): (String, String, Bool) = {
+            switch reading {
+            case .none: return ("", "–", false)
+            case .near(let m): return ("<", "\(m)", false)
+            case .meters(let m, let rough): return (rough ? "≈" : "", "\(m)", rough)
+            }
         }()
         VStack(spacing: -4) {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
+                if !prefix.isEmpty { Text(prefix).font(.system(size: 28, weight: .semibold, design: .rounded)) }
                 Text(value).font(.system(size: 44, weight: .bold, design: .rounded))
                 Text("m").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
             }
+            .opacity(rough ? 0.6 : 1)
             Text("to the hole").font(.system(size: 12)).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
     }
 
-    private func remark() {
-        WKInterfaceDevice.current().play(store.markHole(hole) ? .success : .failure)
+    // Gathers fixes at the cup for a few seconds, then marks it: a tap on the wrist to start, another when done.
+    private func mark() {
+        WKInterfaceDevice.current().play(.start)
+        store.markHoleStandingStill(hole) { marked in
+            WKInterfaceDevice.current().play(marked ? .success : .failure)
+        }
+    }
+
+    private var holdStill: some View {
+        VStack(spacing: 4) {
+            ProgressView()
+            Text("Marking… hold still")
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .frame(maxWidth: .infinity, minHeight: 64)
     }
 
     private var markButton: some View {
         Button {
-            if store.markHole(hole) { WKInterfaceDevice.current().play(.success) }
+            mark()
         } label: {
             VStack(spacing: 2) {
                 Label("Mark hole", systemImage: "flag.fill")

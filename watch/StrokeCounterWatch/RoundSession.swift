@@ -130,6 +130,11 @@ final class RoundSession {
         if active { location.refresh() }
     }
 
+    // A fix every second for a few seconds, e.g. while the player stands at the cup to mark it.
+    func refreshLocation() {
+        location.refresh()
+    }
+
     // A stroke was just logged without a position: the next fix within the window is passed on for it.
     func awaitFix(strokeId: String, roundId: String, hole: Int) {
         awaitingFix = (strokeId, roundId, hole, Date())
