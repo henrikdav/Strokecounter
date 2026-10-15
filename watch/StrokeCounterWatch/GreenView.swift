@@ -3,7 +3,9 @@ import WatchKit
 
 // PROTOTYPE. The green page, below the hole screen (swipe up or turn the crown): the distance to the hole, live from
 // GPS once the hole is marked, and one button that logs a putt where the watch is, so each putt's length is the
-// distance from there to the hole. Without a mark, the page asks to mark the hole first.
+// distance from there to the hole. Without a mark, the page asks to mark the hole first; a long press on the
+// distance marks it again where the watch is now (the newest mark wins). No confirmation after a putt: a click on
+// the wrist, the count goes up, and changes are made on the phone.
 struct GreenView: View {
     @EnvironmentObject private var store: WatchStore
     let hole: Int
@@ -24,6 +26,9 @@ struct GreenView: View {
                 markButton
             } else {
                 TimelineView(.periodic(from: .now, by: 2)) { _ in distance }
+                    .contentShape(Rectangle())
+                    .onLongPressGesture(minimumDuration: 0.6) { remark() }
+                    .accessibilityAction(named: "Mark hole again") { remark() }
             }
 
             Text("\(putts) \(putts == 1 ? "putt" : "putts")")
@@ -76,6 +81,10 @@ struct GreenView: View {
             Text("to the hole").font(.system(size: 12)).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private func remark() {
+        WKInterfaceDevice.current().play(store.markHole(hole) ? .success : .failure)
     }
 
     private var markButton: some View {
