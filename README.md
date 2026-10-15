@@ -8,7 +8,7 @@ as an Apple Watch app that logs strokes from the wrist.
 
 | Folder | What it is | Built with |
 | --- | --- | --- |
-| `web/` | The whole app: data, rules and every screen, in one file (`index.html`) | Plain HTML, CSS and JavaScript, no build step |
+| `web/` | The whole app: data, rules and every screen in `index.html`, plus features kept in their own files (`club-stats.js`) | Plain HTML, CSS and JavaScript, no build step |
 | `ios/` | iOS app: a WKWebView around `web/index.html`, plus native bridges | SwiftUI, generated with xcodegen |
 | `watch/` | Apple Watch app for logging strokes during a round | SwiftUI, native |
 
@@ -51,7 +51,21 @@ gh run rerun <run id>      # gh run list --limit 1 shows the id
 ```
 
 On the phone, pull down on a screen to reload, or tap the "new version" banner. The app finds updates by
-comparing `index.html` with the server's copy, so everything the app needs must stay in that one file.
+comparing `index.html`, and each feature's own file, with the server's copy, so a new file must be registered as a
+feature (below) to be checked.
+
+### Features in their own files
+
+A feature that should be easy to change or remove lives in its own file in `web/`, loaded by one `<script>` line
+before the app's script. It registers itself in `window.strokeCounterFeatures`: its screens (`views`), buttons
+(`actions`), a row under the home screen's stats (`home`) and its file name (`file`, checked for updates). It only
+reads the app's data and keeps its own settings under its own storage key. Removing it = deleting the file and its
+`<script>` line. Now there is one:
+
+- **Club statistics** (`club-stats.js`): whether the player is getting better, over every finished round. Cards for
+  the whole bag (solid shots, consistency, distance, week by week), every club's normal length on one scale, and
+  each club over time, from all shots or since a chosen date. Full swings only; a mishit is a shot under ¾ of the
+  club's normal length, and a shot onto the green is never one. The rules are listed at the top of the file.
 
 ### Data
 
@@ -204,6 +218,7 @@ python3 and Chrome (set `CHROME=/path/to/chrome` if it isn't found).
 | `home` | Stats, Continue card, Past rounds and net badges, swipe to delete, settings |
 | `navigation` | Where Back goes from the scorecard and hole views |
 | `watch-sync` | Snapshots to the watch and `applyWatchEvents`: merging, removals, positions, locks, finished rounds |
+| `club-stats` | Club statistics: which shots count, normal length, mishits, shots onto the green, the start date, the screen |
 | `suggest-club` | `teeClubs`: the likely tee club per hole sent to the watch (same hole on the course, else same par) |
 | `gps` | The GPS watch: restarts after a denied error and on return to the app, the status pill |
 | `gps-shim` | `ios/StrokeCounter/gps-shim.js` with a fake native bridge |
@@ -230,5 +245,6 @@ checks to a page, with each change to the rules.
 ## Conventions
 
 - Commit messages, code comments and UI text are in English.
-- Keep the web app in one file with no build step (see "Deploy" for why).
+- Keep the web app in `index.html` with no build step; only a self-contained feature gets its own file (see
+  "Features in their own files").
 - Identifiers and comments follow the surrounding code; comments explain why, not what.

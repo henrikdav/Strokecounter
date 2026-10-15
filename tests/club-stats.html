@@ -1,0 +1,113 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Club statistics</title>
+<pre id="out"></pre>
+<script src="harness.js"></script>
+<script>
+// Club statistics (web/club-stats.js): which shots count, a club's normal length, mishits, shots onto the green, the start
+// date, and the screen behind the row on the home screen. The feature only reads the rounds.
+test(async () => {
+  const now = Date.now();
+  // A stroke `m` meters north of a fixed point, with good GPS unless `acc` says otherwise.
+  const at = (club, m, extra = {}) => ({ club, lat: 55.6 + m / 111195, lng: 13.0, acc: 3, ...extra });
+  // A hole with one shot of `length` m: the club, then a SW (no distance of its own) where it stopped.
+  const shot = (club, length, extra = {}) => [at(club, 0, extra), at('SW', length)];
+  let n = 0;
+  const holes = list => Object.fromEntries(list.map((strokes, i) => [i + 1, strokes.map(s => ({ id: 'x' + n++, t: now - DAY + n, ...s }))]));
+  const finished = (id, list, extra = {}) => makeRound(id, { holeCount: 18, holes: holes(list), finished: true, finishedAt: now, createdAt: now - DAY, ...extra });
+
+  const counted = [
+    shot('7i', 100), shot('7i', 110), shot('7i', 120), shot('7i', 130), shot('7i', 140),
+    shot('7i', 50),                              // a mishit: under 3/4 of the normal length
+    shot('7i', 400),                             // a GPS glitch: over twice the normal length
+    [at('7i', 0), at('Putter', 60)]              // onto the green: never a mishit, not for length
+  ];
+  const leftOut = [
+    shot('7i', 120, { chip: true }), shot('7i', 120, { pitch: true }), shot('7i', 120, { bunker: true }),
+    shot('7i', 120, { auto: true }),             // an automatic stroke not yet confirmed
+    shot('7i', 120, { acc: 30 }),                // poor GPS (≈)
+    [at('7i', 0), at('Penalty', 120)],           // followed by a penalty
+    [at('Putter', 0), at('Putter', 5)]           // putts
+  ];
+  const app = await loadApp({ data: { courses: [], rounds: [
+    finished('a', counted.concat(leftOut)),
+    makeRound('open', { holes: holes([shot('7i', 300)]) })   // not finished: does not count yet
+  ] } });
+
+  const shots = app.E('ClubStats.collectShots(db.rounds, CLUBS)');
+  ok('only full swings with a distance count, from finished rounds', shots.length === counted.length,
+    JSON.stringify(shots.map(s => Math.round(s.m))));
+  ok('the distance is to where the next stroke was played', Math.abs(shots[0].m - 100) < 0.5, shots[0].m);
+  ok('a shot followed by a putt is onto the green', shots.filter(s => s.onGreen).length === 1 && Math.round(shots.find(s => s.onGreen).m) === 60);
+
+  const a = app.E('ClubStats.analyse(db.rounds)');
+  ok("the club's normal length: median without the glitch or the shot onto the green", Math.round(a.normal['7i']) === 115, a.normal['7i']);
+  ok('a GPS glitch over twice the normal length is left out', a.shots.length === counted.length - 1 && !a.shots.some(s => s.m > 300));
+  const solid = a.shots.filter(s => s.solid).map(s => Math.round(s.m)).sort((x, y) => x - y);
+  ok('a mishit is under 3/4 of the normal length; a shot onto the green is solid', JSON.stringify(solid) === '[60,100,110,120,130,140]', JSON.stringify(solid));
+  ok('the shot onto the green is not used for length', !a.shots.find(s => s.onGreen).forLength);
+  ok('one period, with 6 of 7 shots solid', a.periods.length === 1 && Math.round(a.periods[0].solid * 7) === 6, JSON.stringify(a.periods));
+  ok('the bag lists the club with its normal length', a.bag.length === 1 && a.bag[0].club === '7i' && Math.round(a.bag[0].med) === 115, JSON.stringify(a.bag));
+
+  ok('a start date after every shot leaves none', app.E(`ClubStats.analyse(db.rounds, { from: ${now} }).shots.length`) === 0);
+
+  // The home screen and the screen.
+  const row = app.q('[data-action="club-stats"]');
+  ok('the home screen has a Club statistics row with the latest share of solid shots', row && /Club statistics/.test(row.textContent) && /9 of 10 solid shots/.test(row.textContent), row && row.textContent);
+  await app.click('[data-action="club-stats"]');
+  ok('the row opens Club statistics', app.E('view') === 'club-stats' && /Club statistics/.test(app.q('.top h2').textContent));
+  ok('it shows the cards, the bag and the club', app.qa('.cs-card').length === 3 && app.qa('.cs-panel').length === 2 && app.qa('.cs-chip[data-club="7i"]').length === 1);
+
+  // A tap on a club in the bag folds out its numbers; another folds them away.
+  await app.click('[data-action="club-stats-bag"][data-club="7i"]');
+  const detail = app.q('.cs-bag-detail');
+  const text = detail ? detail.textContent.replace(/\s+/g, ' ') : '';
+  ok('a tap on a club shows its numbers', /7 shots/.test(text) && /Normal length\s*115 m/.test(text) && /Half land\s*10[23]–12[78] m/.test(text) && /Longest\s*140 m/.test(text), text);
+  ok('the row says it is open', app.q('[data-action="club-stats-bag"]').getAttribute('aria-expanded') === 'true');
+  await app.click('[data-action="club-stats-bag"][data-club="7i"]');
+  ok('another tap folds it away', !app.q('.cs-bag-detail'));
+  await app.click('[data-action="club-stats-bag"][data-club="7i"]');
+  await app.click('[data-action="club-stats-see"]');
+  ok('See over time picks the club below', app.q('.cs-chip[data-club="7i"]').getAttribute('aria-pressed') === 'true');
+
+  // The key under the club's chart shows or hides each kind of shot.
+  const dots = () => app.qa('.cs-panel:last-of-type svg[aria-label="Shots over time"] circle[r="3"]').length;
+  const keys = app.qa('.cs-key').map(k => k.textContent.replace(/\s+/g, ' ').trim());
+  ok('the key lists solid shots, mishits and shots onto the green, with counts', JSON.stringify(keys) === '["Solid 5","Mishit 1","Onto the green 1"]', JSON.stringify(keys));
+  const all = dots();
+  await app.click('[data-action="club-stats-dots"][data-kind="solid"]');
+  ok('a tap on Solid hides those dots', dots() === all - 5 && app.q('[data-kind="solid"]').getAttribute('aria-pressed') === 'false', dots());
+  await app.click('[data-action="club-stats-dots"][data-kind="solid"]');
+  ok('another tap shows them again', dots() === all);
+
+  const before = localStorage.getItem(STORAGE_KEY);
+  ok('the date field starts on the first shot', app.q('#club-stats-from').value === app.E('(d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`)(new Date(ClubStats.collectShots(db.rounds, CLUBS)[0].t))'), app.q('#club-stats-from').value);
+  // With the picker open (the field focused) a change waits, so the picker is not closed by a redraw.
+  let input = app.q('#club-stats-from');
+  input.focus();
+  input.value = new Date(now - 3 * DAY).toISOString().slice(0, 10);
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await wait(20);
+  ok('a change while the picker is open neither saves nor redraws', app.q('#club-stats-from') === input && !localStorage.getItem('golf-strokes.club-stats.v1'));
+  input.blur();
+  await wait(20);
+  ok('it is applied when the picker closes', JSON.parse(localStorage.getItem('golf-strokes.club-stats.v1')).from === input.value);
+  input = app.q('#club-stats-from');
+  input.value = new Date(now + DAY).toISOString().slice(0, 10);
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await wait(20);
+  ok('a start date is kept under its own key', JSON.parse(localStorage.getItem('golf-strokes.club-stats.v1')).from === input.value);
+  ok('and the screen follows it', /No shots with a distance since that date/.test(app.q('main').textContent));
+  ok("the rounds' data is not touched", localStorage.getItem(STORAGE_KEY) === before);
+  await app.click('[data-action="club-stats-all"]');
+  ok('All shows every shot again', app.qa('.cs-card').length === 3 && JSON.parse(localStorage.getItem('golf-strokes.club-stats.v1')).from === null);
+
+  await app.click('[data-action="club-stats-back"]');
+  ok('Back goes home', app.E('view') === 'list' && !!app.q('[data-action="club-stats"]'));
+
+  // Without any distance yet, the row is still there, without a number.
+  const empty = await loadApp({ data: { courses: [], rounds: [] } });
+  const bare = empty.q('[data-action="club-stats"]');
+  ok('with no shots the row just says Club statistics', bare && bare.textContent.replace(/\s+/g, '') === 'Clubstatistics›', bare && bare.textContent);
+});
+</script>
