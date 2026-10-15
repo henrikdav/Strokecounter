@@ -42,7 +42,8 @@ async function loadApp({ data, inject = '' } = {}) {
     if (data) localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }
   const html = await (await fetch('../web/index.html', { cache: 'no-store' })).text();
-  await loadHtml(html.replace('<head>', '<head>' + inject));
+  // The base makes the app's own files (features such as my-clubs.js) load from web/, as they do in the app.
+  await loadHtml(html.replace('<head>', '<head><base href="../web/">' + inject));
   await wait(300);
   const w = frame.contentWindow, d = frame.contentDocument;
   return {

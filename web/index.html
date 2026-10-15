@@ -398,6 +398,8 @@
 <div id="app"></div>
 <noscript>Stroke Counter requires JavaScript.</noscript>
 
+<!-- Features in their own files register in window.strokeCounterFeatures (see `features` below). -->
+<script src="my-clubs.js"></script>
 <script>
 'use strict';
 
@@ -504,7 +506,7 @@ function saveDb() {
 }
 
 let db = loadDb();
-let view = 'list';       // 'list' | 'round' | 'card' | 'courses' | 'course-edit'
+let view = 'list';       // 'list' | 'round' | 'card' | 'courses' | 'course-edit', or a feature's view (`features`)
 let roundId = null;
 // Where Back goes. A finished round opened from Past rounds starts on its scorecard ('list' below it), and a hole
 // opened from that scorecard goes back to it. Rounds opened to play (Continue) keep round -> scorecard -> round.
@@ -526,6 +528,12 @@ let toastTimer = null;
 let updateAvailable = false;  // a newer version of the app was found on the server
 
 const app = document.getElementById('app');
+
+// Features kept in their own files (web/*.js), loaded before this script, so each can be changed or removed
+// alone: deleting the file and its <script> line removes it. Each may give `views` (screen name → render
+// function), `actions` (data-action → handler, given the element), `home` (HTML for a row under the home
+// screen's stats) and `file` (checked for updates like this page). A feature only reads the app's data.
+const features = window.strokeCounterFeatures || [];
 
 /* ---------- Helpers ---------- */
 
@@ -1084,6 +1092,7 @@ function renderList() {
       <main class="scroll">
         ${updateAvailable ? '<button class="update-banner" data-action="hard-reload">A new version is available. Tap to update.</button>' : ''}
         ${statsHtml}
+        ${features.map(f => f.home ? f.home() : '').join('')}
         ${currentHtml}
         ${past.length ? `
         <div class="past-head"><h2>Past rounds</h2><span>Swipe left to delete</span></div>
@@ -1901,6 +1910,7 @@ function render() {
   else if (view === 'card' && getRound()) html = renderCard();
   else if (view === 'courses') html = renderCourses();
   else if (view === 'course-edit' && draft) html = renderCourseEdit();
+  else if (features.some(f => f.views && f.views[view])) html = features.find(f => f.views && f.views[view]).views[view]();
   else { view = 'list'; html = renderList(); }
   app.innerHTML = html + (sheet ? renderSheet() : '');
   if (view === 'round') {
@@ -3258,6 +3268,8 @@ app.addEventListener('click', event => {
   const el = event.target.closest('[data-action]');
   if (!el || el.disabled) return;
   const action = el.dataset.action;
+  const feature = features.find(f => f.actions && f.actions[action]);
+  if (feature) { feature.actions[action](el); return; }
   const round = getRound();
 
   switch (action) {
@@ -3707,6 +3719,11 @@ function swipeHole(delta) {
 
 /* ---------- Pull to refresh and updates ---------- */
 
+// The features' own files (see `features`), next to this page.
+function featureFiles() {
+  return features.filter(f => f.file).map(f => new URL(f.file, location.href).pathname);
+}
+
 // Reloads the app from the server, bypassing any cached copy. Saved data lives in localStorage and is not touched.
 // The fetch refreshes the browser cache for this page; the throwaway ?fresh= parameter makes sure the
 // navigation itself cannot be answered from an old cached copy. When offline, nothing is reloaded.
@@ -3719,6 +3736,8 @@ async function hardReload() {
   try {
     const res = await fetch(base, { cache: 'reload' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
+    // The features' files too, so the reload doesn't run a new page with an old feature.
+    await Promise.all(featureFiles().map(file => fetch(file, { cache: 'reload' })));
   } catch (err) {
     reloading = false;
     hidePtr();
@@ -3809,12 +3828,15 @@ app.addEventListener('touchcancel', () => { pull = null; if (!reloading) hidePtr
 async function checkForUpdate() {
   if (!navigator.onLine) return;
   try {
-    const base = location.pathname;
-    const [running, latest] = await Promise.all([
-      fetch(base, { cache: 'force-cache' }).then(r => r.ok ? r.text() : null),
-      fetch(base, { cache: 'no-store' }).then(r => r.ok ? r.text() : null)
-    ]);
-    if (running && latest && running !== latest) {
+    const changed = async url => {
+      const [running, latest] = await Promise.all([
+        fetch(url, { cache: 'force-cache' }).then(r => r.ok ? r.text() : null),
+        fetch(url, { cache: 'no-store' }).then(r => r.ok ? r.text() : null)
+      ]);
+      return !!running && !!latest && running !== latest;
+    };
+    const results = await Promise.all([location.pathname, ...featureFiles()].map(changed));
+    if (results.some(Boolean)) {
       updateAvailable = true;
       if (view === 'list' && !sheet) render();
     }
