@@ -90,6 +90,10 @@ it already has, so a late copy never takes it back.
   clubs in the bag, never Putter or Penalty; `null` without history. The watch preselects it (#6).
 - `strokes` is keyed by real hole number. `mods` holds `chip`, `pitch`, `bunker`, `rough` in that order.
   `edited` (v3) is when the stroke's club or modifiers were last changed, on either device; missing if never.
+  `auto: true` marks a stroke the watch logged by itself (a swing walked away from and never logged, logged at the
+  next swing or on the Finish hole screen with the swing's time and position and the hole's likely club) and nobody
+  has confirmed yet; missing otherwise. Any edit confirms it (an `edit` event, Save in the phone's edit-stroke
+  sheet, or Done on the watch's confirmation), so the phone keeps the mark only until then. Older apps ignore it.
   `lat`/`lng`/`acc` appear only when the stroke has a position, `landing` only when the shot's distance was locked
   (Stop on the phone, a tap on the distance on the watch).
 - `locked` lists holes finished with Done. For a finished round it lists every hole, so an older watch app also
@@ -106,7 +110,7 @@ the watch's clock.
 
 | `type` | Other fields | Meaning |
 | --- | --- | --- |
-| `add` | `stroke`: `{ id, club, mods, t, lat?, lng?, acc? }` | A stroke logged on the watch. `id` is a lowercase UUID made on the watch; the position is the watch's own fix, when it had one no older than 30 s |
+| `add` | `stroke`: `{ id, club, mods, t, lat?, lng?, acc?, auto? }` | A stroke logged on the watch. `id` is a lowercase UUID made on the watch; the position is the watch's own fix, when it had one no older than 30 s. `auto: true` marks a stroke the watch logged by itself from a forgotten swing (see `auto` above) |
 | `remove` | `id`, `t` | A stroke removed with Undo |
 | `finish` | `t` | The hole was finished on the watch (Next hole / Finish hole) |
 | `position` | `id`, `position`: `{ lat, lng, acc }` | A fix that arrived within 10 s after a stroke logged without one |
@@ -129,7 +133,7 @@ the watch's clock.
    (`shotDistance`), so scorecard and export are the same as for a distance measured on the phone.
 7. **mark.** Sets `round.holePositions[hole]`, as Mark hole does on the phone. The newest mark wins by `t`,
    whichever device made it and whatever order marks arrive in.
-8. **edit.** Sets the stroke's club and modifiers, as Save does in the phone's edit-stroke sheet, and records
+8. **edit.** Sets the stroke's club and modifiers and drops its `auto` mark, as Save does in the phone's edit-stroke sheet, and records
    `editedAt` = `t`. The newest edit wins: an edit older than the stroke's `editedAt` (a later change on the
    phone, or a newer edit from the watch) is ignored. Unknown clubs and modifiers are ignored; Penalty takes no
    modifiers. Saving the edit-stroke sheet on the phone also sets `editedAt`.

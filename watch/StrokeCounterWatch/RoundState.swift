@@ -97,6 +97,7 @@ struct RoundState: Equatable {
             if let i = list.firstIndex(where: { $0.id == event.id }), let club = event.club {
                 list[i].club = club
                 list[i].mods = event.mods ?? []
+                list[i].auto = nil   // an edit confirms an automatic stroke, as on the phone
             }
         }
         return list.sorted { $0.t < $1.t }
@@ -124,11 +125,12 @@ struct RoundState: Equatable {
     // Each one puts its event in the outbox and returns it for sending, or returns nil when it is not allowed.
     // The id, time and position are passed in, so the rules can be tested without a clock or GPS.
 
+    // auto: logged by the watch itself from a swing nobody logged (marked until confirmed).
     mutating func logStroke(id: String, club: String, mods: Set<Modifier>, hole: Int, t: Double,
-                            position: WatchEvent.Position?) -> WatchEvent? {
+                            position: WatchEvent.Position?, auto: Bool = false) -> WatchEvent? {
         guard let round, !isLocked(hole) else { return nil }
         let stroke = Snapshot.Stroke(id: id, club: club, mods: Modifier.allCases.filter(mods.contains).map(\.rawValue),
-                                     t: t, lat: position?.lat, lng: position?.lng, acc: position?.acc)
+                                     t: t, auto: auto ? true : nil, lat: position?.lat, lng: position?.lng, acc: position?.acc)
         return queue(WatchEvent(type: .add, roundId: round.id, hole: hole, stroke: stroke))
     }
 

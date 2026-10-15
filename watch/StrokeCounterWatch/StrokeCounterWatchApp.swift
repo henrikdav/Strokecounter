@@ -46,10 +46,12 @@ struct RootView: View {
         content
             .onChange(of: scenePhase) { _, phase in
                 store.setAppActive(phase != .background)
-                if phase == .active { showSwingClubs() }
+                if phase == .active { showPending() }
             }
             // A swing found, or walked away from, while the screen is up shows the list at once.
-            .onChange(of: store.swingChanges) { _, _ in if scenePhase == .active { showSwingClubs() } }
+            .onChange(of: store.swingChanges) { _, _ in if scenePhase == .active { showPending() } }
+            // Back on the hole screen (e.g. Done on an automatic stroke): what else is waiting comes next.
+            .onChange(of: path) { _, now in if now.isEmpty && scenePhase == .active { showPending() } }
             .alert("Update the watch app", isPresented: Binding(get: { store.phoneIsNewer }, set: { store.phoneIsNewer = $0 })) {
                 Button("OK") {}
             } message: {
@@ -59,8 +61,17 @@ struct RootView: View {
 
     // Raising the wrist within a minute of a swing shows the club list to log it; after that, or once it is used,
     // the list goes and the hole screen shows as usual.
-    private func showSwingClubs() {
+    // What waits for the wrist raise, in order: a stroke the watch logged by itself (to confirm or fix), then the
+    // club list for a swing.
+    private func showPending() {
         guard let hole = store.currentHole else { return }
+        if path.isEmpty, let auto = store.autoStrokeToShow {
+            store.autoStrokeToShow = nil
+            if auto.hole == hole, let index = store.strokes(on: hole).firstIndex(where: { $0.id == auto.stroke.id }) {
+                path = [.logged(auto.stroke, number: index + 1, hole: hole)]
+                return
+            }
+        }
         if store.swingWaiting(on: hole) {
             if path.last != .swingClubs {
                 path = [.swingClubs]

@@ -168,7 +168,10 @@ blocks the screen in automated runs.
   (`SwingDetector.swift`). A stroke logged within a minute of a swing gets the swing's position, and raising the
   wrist in that minute shows the club list: a tap logs the stroke. A swing not logged is kept until the next one;
   walking 15 m away from it buzzes the watch twice and the club list (titled with the swing's time) waits for the
-  next wrist raise, so a forgotten shot is still logged from where it was played. Putts and short chips are not found. It can be
+  next wrist raise, so a forgotten shot is still logged from where it was played. If it still isn't logged when the
+  next swing comes or the Finish hole screen opens, the watch logs it by itself, silently, with the hole's likely club;
+  it shows as "Stroke N added" on the next wrist raise and is tagged *auto* (dashed on the phone) until edited or
+  confirmed with Done. Putts and short chips are not found. It can be
   switched off in the phone's Settings to save the watch's battery (it stops reading the motion sensor).
 - **Swing recordings:** the watch logs each round's swings found, how strokes were logged, GPS fixes and its battery
   level every minute (`events.jsonl`), plus every motion sample (`motion.bin`, 50 Hz) when collecting data to tune

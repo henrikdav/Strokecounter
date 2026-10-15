@@ -27,7 +27,8 @@ struct StrokeLoggedView: View {
                     .foregroundStyle(accentInk)
                     .frame(width: 24, height: 24)
                     .background(Circle().fill(accent))
-                Text("Stroke \(number) logged")
+                // A stroke the watch logged by itself says so until it is confirmed.
+                Text("Stroke \(number) \(current.auto == true ? "added" : "logged")")
                     .font(.system(size: 15, weight: .bold))
             }
             pill(current.club, placeholder: false, enabled: editable) {
@@ -44,6 +45,7 @@ struct StrokeLoggedView: View {
                 if editable { store.removeStroke(stroke.id, hole: hole) }
                 path = []
             } onDone: {
+                if current.auto == true { store.confirmStroke(current, hole: hole) }
                 path = []
             }
         }

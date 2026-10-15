@@ -128,6 +128,7 @@
   .dock .modrow { margin-bottom: 8px; }
   .dock .modbtn { min-height: 30px; font-size: 13px; }
   .chiptag { font-size: 11px; font-weight: 700; color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; }
+  .chiptag-auto { border-style: dashed; color: var(--fairway); border-color: var(--fairway); }
   .actions { display: flex; gap: 10px; }
   .done { width: 88px; min-height: 76px; border-radius: 20px; border: 2px solid var(--fairway); background: var(--white);
           font-size: 20px; font-weight: 800; color: var(--fairway-deep); }
@@ -448,7 +449,8 @@ const FIX_MAX_AGE_MS = 30000;
   }
   stroke = { id, t, club, lat, lng, acc, landing?: { lat, lng, acc }, chip?, pitch?, bunker?, rough?,  // modifiers are true when set
              note?,                                                                               // optional comment on the stroke
-             editedAt? }                                                                          // when club or modifiers were last changed (ms)
+             editedAt?,                                                                           // when club or modifiers were last changed (ms)
+             auto? }                                                                              // logged automatically by the watch, not yet confirmed
 */
 
 // Turns saved (or restored) data into a db, filling in defaults. Returns null when there are no rounds to read.
@@ -937,7 +939,9 @@ function clubGroup(stroke) {
 
 // Small tags for a stroke's modifiers, e.g. "bunker" and "chip", in the stroke list and scorecard.
 function modTags(stroke) {
-  return MODS.filter(m => stroke[m.key]).map(m => `<span class="chiptag">${m.key}</span>`).join('');
+  return MODS.filter(m => stroke[m.key]).map(m => `<span class="chiptag">${m.key}</span>`).join('') +
+    // Logged automatically by the watch (a swing it saw, not logged by hand) and not yet confirmed.
+    (stroke.auto ? '<span class="chiptag chiptag-auto">auto</span>' : '');
 }
 
 // A row of toggle buttons for the modifiers; `isOn(key)` says which are active.
@@ -2765,6 +2769,7 @@ function sendWatchSnapshot() {
       strokes[h] = (round.holes[h] || []).map(s => ({
         id: s.id, club: s.club, mods: MODS.filter(m => s[m.key]).map(m => m.key), t: s.t,
         ...(Number.isFinite(s.editedAt) ? { edited: s.editedAt } : {}),
+        ...(s.auto ? { auto: true } : {}),
         ...(hasPos(s) ? point(s) : {}),
         ...(hasPos(s.landing) ? { landing: point(s.landing) } : {})
       }));
@@ -2857,6 +2862,7 @@ function applyWatchEvents(events) {
       const stroke = { id: e.stroke.id, t: e.stroke.t, club: e.stroke.club };
       if (hasPos(e.stroke)) { stroke.lat = e.stroke.lat; stroke.lng = e.stroke.lng; stroke.acc = e.stroke.acc || 0; }
       if (stroke.club !== PENALTY) (e.stroke.mods || []).forEach(k => { if (MODS.some(m => m.key === k)) stroke[k] = true; });
+      if (e.stroke.auto === true) stroke.auto = true;   // logged automatically from a swing, to be confirmed
       // Keep the strokes in the order they were played, whichever device logged them and whenever they arrive.
       const at = list.findIndex(s => s.t > stroke.t);
       list.splice(at < 0 ? list.length : at, 0, stroke);
@@ -2894,6 +2900,7 @@ function applyWatchEvents(events) {
       stroke.club = e.club;
       MODS.forEach(m => { if (e.club !== PENALTY && (e.mods || []).includes(m.key)) stroke[m.key] = true; else delete stroke[m.key]; });
       stroke.editedAt = t;
+      delete stroke.auto;   // an edit on the watch confirms an automatic stroke
       changed = true;
     } else if (e.type === 'mark' && hasPos(e.position)) {
       // Like Mark hole on the round screen. Marking again overwrites, so the newest mark wins, whichever device
@@ -3019,6 +3026,7 @@ function saveStrokeDraft() {
     stroke.club = club;
     MODS.forEach(m => { if (mods[m.key] && club !== PENALTY) stroke[m.key] = true; else delete stroke[m.key]; });
     stroke.editedAt = Date.now();   // so an older edit from the watch arriving later doesn't undo this one
+    delete stroke.auto;             // saving it here confirms an automatic stroke
     const text = note.trim().slice(0, NOTE_MAX.stroke);
     if (text) stroke.note = text; else delete stroke.note;
   }

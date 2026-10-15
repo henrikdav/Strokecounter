@@ -111,7 +111,7 @@ final class SwingRecorder {
     // A stroke logged on the watch, and whether from the club list shown after a swing and with the swing's position.
     func noteStroke(_ stroke: Snapshot.Stroke, hole: Int, fromSwingList: Bool, swingPosition: Bool) {
         write(event: ["type": "stroke", "t": stroke.t, "id": stroke.id, "club": stroke.club, "mods": stroke.mods, "hole": hole,
-                      "fromSwingList": fromSwingList, "swingPosition": swingPosition])
+                      "fromSwingList": fromSwingList, "swingPosition": swingPosition, "auto": stroke.auto == true])
     }
 
     func noteEdit(strokeId: String, club: String, mods: [String]) {

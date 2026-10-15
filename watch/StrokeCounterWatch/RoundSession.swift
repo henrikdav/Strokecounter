@@ -35,6 +35,8 @@ final class RoundSession {
     static let walkedAwayDistance = 15.0
     // The hole being played, so a swing belongs to it (WatchStore).
     var currentHole: () -> Int? = { nil }
+    // A swing walked away from and never logged, now overtaken by the next swing: log it as a stroke (WatchStore).
+    var onForgottenSwing: ((Swing) -> Void)?
     // Swing detection, on unless switched off in the phone's Settings (it comes with the snapshot).
     private var detecting = true
 
@@ -184,7 +186,15 @@ final class RoundSession {
         onSwingChange?()
     }
 
+    // The swing that would be logged automatically: walked away from, not logged, not cancelled.
+    var forgottenSwing: Swing? {
+        guard let swing = lastSwing, swing.walkedAway, !swing.listClosed, swing.hole != nil else { return nil }
+        return swing
+    }
+
     private func swingFound(at time: Date, _ swing: SwingDetector.Swing) {
+        // The player walked away from the last swing without logging it and has now swung again: that was a shot.
+        if let forgotten = forgottenSwing { onForgottenSwing?(forgotten) }
         // The player stands still at the ball, so the latest fix (no older than 30 s, within 2 m of the ball) is
         // where the swing was; without one, the first fix of a refresh fills it in (swingFix).
         lastSwing = Swing(time: time, hole: currentHole(), position: freshFix)

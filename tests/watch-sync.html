@@ -166,6 +166,20 @@ test(async () => {
   apply([ev({ hole: 5, type: 'edit', id: 'L2', club: '7i', mods: [], t: Date.now() + 1000 })]);
   ok('an edit after the hole was locked is refused', hole(5).find(s => s.id === 'L2').club === 'Penalty');
 
+  // Strokes logged automatically on the watch (from a swing not logged by hand)
+  apply([ev({ hole: 7, type: 'add', stroke: { id: 'A1', club: '7i', mods: [], t: Date.now(), auto: true } })]);
+  ok('an automatic stroke from the watch is kept as automatic', hole(7).find(s => s.id === 'A1').auto === true);
+  snap = await lastSnapshot();
+  ok('and sent back to the watch as automatic', snap.round.strokes['7'].find(x => x.id === 'A1').auto === true);
+  app.E("getRound().currentHole = 7; view = 'round'; render();");
+  ok('the round screen tags it auto', /auto/.test(app.q('.chiptag-auto') ? app.q('.chiptag-auto').textContent : ''));
+  apply([ev({ hole: 7, type: 'edit', id: 'A1', club: '7i', mods: [], t: Date.now() + 1 })]);
+  ok('an edit from the watch confirms it', !hole(7).find(s => s.id === 'A1').auto);
+  apply([ev({ hole: 7, type: 'add', stroke: { id: 'A2', club: '8i', mods: [], t: Date.now() + 2, auto: true } })]);
+  app.E("sheet = { type: 'stroke', strokeId: 'A2', draft: { club: '8i', mods: {}, note: '' } }; saveStrokeDraft();");
+  ok('saving it on the phone confirms it too', !hole(7).find(s => s.id === 'A2').auto);
+  app.E("view = 'list'; render();");
+
   // Finished rounds
   app.E("view = 'card'; render(); finishRound();");
   const finishedAt = round().finishedAt;
