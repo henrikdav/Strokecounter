@@ -133,6 +133,12 @@ final class SwingRecorder {
                       "acc": fix.horizontalAccuracy, "speed": fix.speed])
     }
 
+    // The hole marked on the green page: the mark, and how many fixes it was averaged from and how far apart they were.
+    func noteHoleMark(hole: Int, mark: WatchEvent.Position, fixes: [WatchEvent.Position]) {
+        write(event: ["type": "hole-mark", "t": Self.ms(Date()), "hole": hole, "lat": mark.lat, "lng": mark.lng, "acc": mark.acc,
+                      "fixes": fixes.count, "spread": fixes.map { meters($0, mark) }.max() ?? 0])
+    }
+
     // The battery level now and every minute, to measure what a round costs.
     private func startBatteryLog() {
         WKInterfaceDevice.current().isBatteryMonitoringEnabled = true

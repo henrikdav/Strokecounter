@@ -187,11 +187,18 @@ blocks the screen in automated runs.
   it shows as "Stroke N added" on the next wrist raise and is tagged *auto* (dashed on the phone) until edited or
   confirmed with Done. Putts and short chips are not found. It can be
   switched off in the phone's Settings to save the watch's battery (it stops reading the motion sensor).
+- **Green page:** below the hole screen (swipe up or turn the crown; dots on the right show
+  the page) is a page for the green (`GreenView.swift`). Mark hole there takes 4 s standing at the cup and averages
+  the fixes, weighted by accuracy; a long press on the distance marks it again. The distance to the hole is only as
+  exact as the GPS (`GreenDistance.swift`): "14 m", "≈ 14 m" dimmed when the GPS is poor, "< N m" when closer than
+  it can tell. +1 PUTT logs a putt where the watch is, with no confirmation, so each putt's length is its position
+  against the mark. Finish hole works from both pages, and a new hole starts on the hole screen.
 - **Swing recordings:** the watch logs each round's swings found, how strokes were logged, GPS fixes and its battery
-  level every minute (`events.jsonl`), plus every motion sample (`motion.bin`, 50 Hz) when collecting data to tune
-  the detector (`SwingRecorder.recordsMotion`, off now), and sends them to the phone when the workout ends
-  (`Documents/SwingRecordings`). Copy them to the Mac with `xcrun devicectl device copy from … --domain-type
-  appDataContainer --domain-identifier com.henrikdav.StrokeCounter --source Documents/SwingRecordings/<name>/events.jsonl`,
+  level every minute, and the hole marks made on the green page (`events.jsonl`), plus every motion sample
+  (`motion.bin`, 50 Hz) when collecting data to tune the detector (`SwingRecorder.recordsMotion`, off now), and sends
+  them to the phone when the workout ends (`Documents/SwingRecordings`). Copy them to the Mac with
+  `xcrun devicectl device copy from … --domain-type appDataContainer --domain-identifier com.henrikdav.StrokeCounter
+  --source Documents/SwingRecordings/<name>/events.jsonl`,
   then `tools/swing/inspect.py <folder>`.
 
 The full protocol (every message, field and rule, and how versions work) is in
@@ -228,8 +235,9 @@ python3 and Chrome (set `CHROME=/path/to/chrome` if it isn't found).
 The iOS bridges are faked with a script put at the top of the app's `<head>` (`WATCH_BRIDGE`, `MAP_BRIDGE` in
 `harness.js`).
 
-The watch app's round logic (`RoundState`: what is shown, what is refused, when an event counts as confirmed) has
-unit tests in `watch/StrokeCounterWatchTests/`, run on a watch simulator:
+The watch app's round logic (`RoundState`: what is shown, what is refused, when an event counts as confirmed), the
+swing detector and the green page's distance (`GreenDistance`) have unit tests in `watch/StrokeCounterWatchTests/`,
+run on a watch simulator:
 
 ```sh
 cd ios && xcodebuild test -project StrokeCounter.xcodeproj -scheme StrokeCounterWatch \

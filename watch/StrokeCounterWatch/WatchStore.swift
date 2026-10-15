@@ -16,6 +16,9 @@ final class WatchStore: ObservableObject {
     @Published private(set) var swingTime: Date?
     // Counts every change to the swing (found, walked away from, used), so the screens can react to each.
     @Published private(set) var swingChanges = 0
+    // The hole being marked on the green page, while the watch gathers fixes at the cup (markHoleStandingStill).
+    @Published private(set) var markingHole: Int?
+    private var markFixes: [WatchEvent.Position] = []
     // A stroke the watch logged by itself, to show (with its confirmation) on the next wrist raise.
     @Published var autoStrokeToShow: (stroke: Snapshot.Stroke, hole: Int)?
 
@@ -34,7 +37,10 @@ final class WatchStore: ObservableObject {
         session.onLateFix = { [weak self] strokeId, roundId, hole, position in
             self?.change { $0.fillPosition(position, strokeId: strokeId, roundId: roundId, hole: hole) }
         }
-        session.onFix = { [weak self] fix in self?.lastFix = fix }
+        session.onFix = { [weak self] fix in
+            self?.lastFix = fix
+            if self?.markingHole != nil { self?.markFixes.append(Self.position(fix)) }
+        }
         session.onRecording = { [weak self] folder in self?.sync.sendRecording(folder) }
         session.onSwingChange = { [weak self] in
             self?.swingTime = self?.session.lastSwing?.time
@@ -181,6 +187,30 @@ final class WatchStore: ObservableObject {
     func markHole(_ hole: Int) -> Bool {
         guard let fix = freshFix else { return false }
         return change { $0.markHole(hole, position: fix, t: Self.now) } != nil
+    }
+
+    // Marks the hole from the fixes of a few seconds standing at the cup (GreenDistance.averaged), for the green
+    // page's distance. A fix from the last 2 s counts too; without any, the latest fresh fix. done: marked or not.
+    func markHoleStandingStill(_ hole: Int, done: @escaping (Bool) -> Void) {
+        guard markingHole == nil, !isLocked(hole) else { return done(false) }
+        markingHole = hole
+        markFixes = []
+        if let fix = lastFix, -fix.timestamp.timeIntervalSinceNow < 2 { markFixes.append(Self.position(fix)) }
+        session.refreshLocation()
+        DispatchQueue.main.asyncAfter(deadline: .now() + GreenDistance.markFor) { [weak self] in
+            guard let self else { return }
+            let fixes = self.markFixes
+            self.markingHole = nil
+            self.markFixes = []
+            guard let mark = GreenDistance.averaged(fixes) ?? self.freshFix,
+                  self.change({ $0.markHole(hole, position: mark, t: Self.now) }) != nil else { return done(false) }
+            self.session.recorder.noteHoleMark(hole: hole, mark: mark, fixes: fixes)
+            done(true)
+        }
+    }
+
+    private static func position(_ fix: CLLocation) -> WatchEvent.Position {
+        WatchEvent.Position(lat: fix.coordinate.latitude, lng: fix.coordinate.longitude, acc: fix.horizontalAccuracy)
     }
 
     func finishHole(_ hole: Int) {

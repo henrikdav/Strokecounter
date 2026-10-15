@@ -41,6 +41,9 @@ struct RootView: View {
     @EnvironmentObject private var store: WatchStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [Route] = []
+    // The page shown: the hole screen, or the green page below it (swipe or turn the crown).
+    @State private var page: Page = .hole
+    enum Page: Hashable { case hole, green }
 
     var body: some View {
         content
@@ -52,6 +55,8 @@ struct RootView: View {
             .onChange(of: store.swingChanges) { _, _ in if scenePhase == .active { showPending() } }
             // Back on the hole screen (e.g. Done on an automatic stroke): what else is waiting comes next.
             .onChange(of: path) { _, now in if now.isEmpty && scenePhase == .active { showPending() } }
+            // A new hole starts on the hole screen.
+            .onChange(of: store.currentHole) { _, _ in page = .hole }
             .alert("Update the watch app", isPresented: Binding(get: { store.phoneIsNewer }, set: { store.phoneIsNewer = $0 })) {
                 Button("OK") {}
             } message: {
@@ -85,7 +90,11 @@ struct RootView: View {
     @ViewBuilder private var content: some View {
         if let hole = store.currentHole {
             NavigationStack(path: $path) {
-                ActiveHoleView(hole: hole, path: $path)
+                TabView(selection: $page) {
+                    ActiveHoleView(hole: hole, path: $path).tag(Page.hole)
+                    GreenView(hole: hole, path: $path).tag(Page.green)
+                }
+                .tabViewStyle(.verticalPage)
                     .navigationDestination(for: Route.self) { route in
                         switch route {
                         case .swingClubs:
