@@ -1,7 +1,7 @@
 import SwiftUI
 import WatchKit
 
-// PROTOTYPE. The green page, below the hole screen (swipe up or turn the crown): the distance to the hole, live from
+// The green page, below the hole screen (swipe up or turn the crown): the distance to the hole, live from
 // GPS once the hole is marked, and one button that logs a putt where the watch is, so each putt's length is the
 // distance from there to the hole. Without a mark, the page asks to mark the hole first; a long press on the
 // distance marks it again (the newest mark wins). Marking takes a few seconds standing at the cup, averaged into

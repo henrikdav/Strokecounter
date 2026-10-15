@@ -41,7 +41,7 @@ struct RootView: View {
     @EnvironmentObject private var store: WatchStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [Route] = []
-    // PROTOTYPE: the hole screen, with the green page below it.
+    // The page shown: the hole screen, or the green page below it (swipe or turn the crown).
     @State private var page: Page = .hole
     enum Page: Hashable { case hole, green }
 

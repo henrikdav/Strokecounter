@@ -187,7 +187,7 @@ blocks the screen in automated runs.
   it shows as "Stroke N added" on the next wrist raise and is tagged *auto* (dashed on the phone) until edited or
   confirmed with Done. Putts and short chips are not found. It can be
   switched off in the phone's Settings to save the watch's battery (it stops reading the motion sensor).
-- **Green page (prototype, draft PR #32):** below the hole screen (swipe up or turn the crown; dots on the right show
+- **Green page:** below the hole screen (swipe up or turn the crown; dots on the right show
   the page) is a page for the green (`GreenView.swift`). Mark hole there takes 4 s standing at the cup and averages
   the fixes, weighted by accuracy; a long press on the distance marks it again. The distance to the hole is only as
   exact as the GPS (`GreenDistance.swift`): "14 m", "≈ 14 m" dimmed when the GPS is poor, "< N m" when closer than
