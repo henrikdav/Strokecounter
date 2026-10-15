@@ -70,6 +70,16 @@ test(async () => {
   await app.click('[data-action="club-stats-see"]');
   ok('See over time picks the club below', app.q('.cs-chip[data-club="7i"]').getAttribute('aria-pressed') === 'true');
 
+  // The key under the club's chart shows or hides each kind of shot.
+  const dots = () => app.qa('.cs-panel:last-of-type svg[aria-label="Shots over time"] circle[r="3"]').length;
+  const keys = app.qa('.cs-key').map(k => k.textContent.replace(/\s+/g, ' ').trim());
+  ok('the key lists solid shots, mishits and shots onto the green, with counts', JSON.stringify(keys) === '["Solid 5","Mishit 1","Onto the green 1"]', JSON.stringify(keys));
+  const all = dots();
+  await app.click('[data-action="club-stats-dots"][data-kind="solid"]');
+  ok('a tap on Solid hides those dots', dots() === all - 5 && app.q('[data-kind="solid"]').getAttribute('aria-pressed') === 'false', dots());
+  await app.click('[data-action="club-stats-dots"][data-kind="solid"]');
+  ok('another tap shows them again', dots() === all);
+
   const before = localStorage.getItem(STORAGE_KEY);
   ok('the date field starts on the first shot', app.q('#club-stats-from').value === app.E('(d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`)(new Date(ClubStats.collectShots(db.rounds, CLUBS)[0].t))'), app.q('#club-stats-from').value);
   // With the picker open (the field focused) a change waits, so the picker is not closed by a redraw.

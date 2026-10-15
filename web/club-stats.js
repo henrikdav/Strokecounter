@@ -258,6 +258,26 @@
         </div>`;
   }
 
+  // The three kinds of shot on a club's chart, each with its dot; the key under the chart shows or hides each.
+  const DOTS = {
+    solid: { label: 'Solid', dot: { r: 3, fill: 'var(--fairway)', opacity: 0.45 } },
+    miss: { label: 'Mishit', dot: { r: 3, fill: 'var(--white)', stroke: 'var(--cs-miss)', 'stroke-width': 1.5 } },
+    green: { label: 'Onto the green', dot: { r: 3, fill: 'var(--white)', stroke: 'var(--fairway)', 'stroke-width': 1.5 } }
+  };
+  const dotKind = s => s.onGreen ? 'green' : s.solid ? 'solid' : 'miss';
+  const hiddenDots = new Set();
+
+  function dotKey(list) {
+    return Object.entries(DOTS).map(([kind, d]) => {
+      const n = list.filter(s => dotKind(s) === kind).length;
+      if (!n) return '';
+      const shown = !hiddenDots.has(kind);
+      return `<button class="cs-key" data-action="club-stats-dots" data-kind="${kind}" aria-pressed="${shown}" aria-label="${esc(d.label)}, ${n} shots. ${shown ? 'Hide' : 'Show'}">` +
+        `<svg viewBox="0 0 12 12" width="14" height="14" aria-hidden="true">${svgEl('circle', { cx: 6, cy: 6, ...d.dot, r: 4.5 })}</svg>` +
+        `${esc(d.label)} <span>${n}</span></button>`;
+    }).join('');
+  }
+
   // One club over time: a column per round, a dot per shot, the band and line of the last WINDOW shots.
   function clubChart(list) {
     const W = 340, H = 220, left = 34, right = 10, top = 12, bottom = 26;
@@ -284,13 +304,7 @@
       const band = pts.map(p => `${p.x},${y(p.p75)}`).concat(pts.slice().reverse().map(p => `${p.x},${y(p.p25)}`));
       body += svgEl('polygon', { points: band.join(' '), fill: 'var(--cs-band)', opacity: 0.8 });
     }
-    list.forEach(s => {
-      body += svgEl('circle', s.onGreen
-        ? { cx: x(s), cy: y(s.m), r: 3, fill: 'var(--white)', stroke: 'var(--fairway)', 'stroke-width': 1.5 }
-        : s.solid
-          ? { cx: x(s), cy: y(s.m), r: 3, fill: 'var(--fairway)', opacity: 0.45 }
-          : { cx: x(s), cy: y(s.m), r: 3, fill: 'var(--white)', stroke: 'var(--cs-miss)', 'stroke-width': 1.5 });
-    });
+    list.filter(s => !hiddenDots.has(dotKind(s))).forEach(s => { body += svgEl('circle', { cx: x(s), cy: y(s.m), ...DOTS[dotKind(s)].dot }); });
     if (pts.length > 1) {
       body += svgEl('polyline', { points: pts.map(p => `${p.x},${y(p.med)}`).join(' '), fill: 'none', stroke: 'var(--fairway)', 'stroke-width': 3, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
       const e = pts[pts.length - 1];
@@ -326,8 +340,9 @@
         <div class="cs-chips" role="group" aria-label="Club">${chips}</div>
         <div class="cs-panel">
           <h3>${esc(title)}</h3>
-          <p class="cs-note">The band narrowing means your shots land closer together. Grey rings are mishits, green rings went onto the green.</p>
+          <p class="cs-note">The band narrowing means your shots land closer together. Tap the key to show or hide shots.</p>
           ${clubChart(list)}
+          <div class="cs-keys" role="group" aria-label="Shots shown">${dotKey(list)}</div>
           <div class="cs-facts">
             ${fact('normal length', early.med, late.med, m)}
             ${fact('half land within', early.spread, late.spread, v => isNaN(v) ? '–' : '±' + Math.round(v) + ' m')}
@@ -435,6 +450,12 @@
     .cs-bag-see { grid-column: 1 / -1; justify-self: start; margin-top: 6px; padding: 6px 0; border: 0; background: none;
                   color: var(--fairway); font: inherit; font-weight: 700; }
     .cs-bag-few { grid-column: 1 / -1; margin: 6px 0 0; color: var(--mute); }
+    .cs-keys { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 4px 2px; }
+    .cs-key { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 4px 12px; border: 1px solid var(--line);
+              border-radius: 999px; background: var(--white); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; }
+    .cs-key span { color: var(--mute); font-weight: 500; }
+    .cs-panel .cs-key svg { width: 14px; height: 14px; flex: none; display: inline; }
+    .cs-key[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
     .cs-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 4px 4px; }
     .cs-fact b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
     .cs-fact span { color: var(--mute); font-size: 12px; }
@@ -472,6 +493,7 @@
       'club-stats': () => { view = 'club-stats'; render(); },
       'club-stats-back': () => { view = 'list'; render(); },
       'club-stats-club': el => { currentClub = el.dataset.club; redraw(); },
+      'club-stats-dots': el => { const k = el.dataset.kind; if (hiddenDots.has(k)) hiddenDots.delete(k); else hiddenDots.add(k); redraw(); },
       'club-stats-bag': el => { openBagClub = openBagClub === el.dataset.club ? null : el.dataset.club; redraw(); },
       'club-stats-see': el => {
         currentClub = el.dataset.club;
