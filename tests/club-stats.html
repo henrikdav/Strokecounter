@@ -59,7 +59,18 @@ test(async () => {
   ok('it shows the cards, the bag and the club', app.qa('.cs-card').length === 3 && app.qa('.cs-panel').length === 2 && app.qa('.cs-chip[data-club="7i"]').length === 1);
 
   const before = localStorage.getItem(STORAGE_KEY);
-  const input = app.q('#club-stats-from');
+  ok('the date field starts on the first shot', app.q('#club-stats-from').value === app.E('(d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`)(new Date(ClubStats.collectShots(db.rounds, CLUBS)[0].t))'), app.q('#club-stats-from').value);
+  // With the picker open (the field focused) a change waits, so the picker is not closed by a redraw.
+  let input = app.q('#club-stats-from');
+  input.focus();
+  input.value = new Date(now - 3 * DAY).toISOString().slice(0, 10);
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await wait(20);
+  ok('a change while the picker is open neither saves nor redraws', app.q('#club-stats-from') === input && !localStorage.getItem('golf-strokes.club-stats.v1'));
+  input.blur();
+  await wait(20);
+  ok('it is applied when the picker closes', JSON.parse(localStorage.getItem('golf-strokes.club-stats.v1')).from === input.value);
+  input = app.q('#club-stats-from');
   input.value = new Date(now + DAY).toISOString().slice(0, 10);
   input.dispatchEvent(new Event('change', { bubbles: true }));
   await wait(20);

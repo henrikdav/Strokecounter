@@ -303,14 +303,18 @@
         </div>`;
   }
 
-  function fromHtml() {
+  // A date as the date field writes it (yyyy-mm-dd), in local time.
+  const isoDay = t => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+  // The field starts on the chosen date, else on the first shot, so the picker opens where the shots begin.
+  function fromHtml(first) {
     const on = !!settings.from;
     return `
         <div class="cs-from" role="group" aria-label="Shots shown">
           <button class="cs-chip" data-action="club-stats-all" aria-pressed="${!on}">All</button>
           <label class="cs-chip cs-since" aria-pressed="${on}">
             <span>${on ? 'Since ' + esc(fmtDay(fromTime())) : 'Since a date'}</span>
-            <input type="date" id="club-stats-from" value="${esc(settings.from || '')}" max="${esc(new Date().toISOString().slice(0, 10))}" aria-label="Show shots since">
+            <input type="date" id="club-stats-from" value="${esc(settings.from || (first ? isoDay(first) : ''))}" max="${esc(isoDay(Date.now()))}" aria-label="Show shots since">
           </label>
         </div>`;
   }
@@ -340,7 +344,7 @@
         <span style="width:64px"></span>
       </header>
       <main class="scroll cs">
-        ${fromHtml()}
+        ${fromHtml(collectShots(db.rounds, CLUBS)[0]?.t)}
         ${main}
       </main>
     </div>`;
@@ -395,13 +399,26 @@
   style.textContent = css;
   document.head.appendChild(style);
 
-  // The start date is a date field inside the "Since" chip; it changes, it does not click.
-  document.addEventListener('change', event => {
-    if (event.target.id !== 'club-stats-from') return;
-    settings = { ...settings, from: event.target.value || null };
+  // The start date is a date field inside the "Since" chip; it changes, it does not click. Redrawing the screen
+  // replaces the field, which closes its picker, so while the field has focus (its picker open) a change only
+  // waits and is applied when the picker closes. iOS sends a change as soon as the picker opens on an empty field,
+  // which closed it at once before.
+  let pendingFrom = false;
+  function applyFrom(input) {
+    pendingFrom = false;
+    const from = input.value || null;
+    if (from === (settings.from || null)) return;
+    settings = { ...settings, from };
     saveSettings(settings);
     render();
+  }
+  document.addEventListener('change', event => {
+    if (event.target.id !== 'club-stats-from') return;
+    if (document.activeElement === event.target) pendingFrom = true; else applyFrom(event.target);
   });
+  document.addEventListener('blur', event => {
+    if (event.target.id === 'club-stats-from' && pendingFrom) applyFrom(event.target);
+  }, true);
 
   (window.strokeCounterFeatures = window.strokeCounterFeatures || []).push({
     file: 'club-stats.js',
